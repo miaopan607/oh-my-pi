@@ -681,8 +681,9 @@ export class Settings {
 		// credentials, sessions and agent.db must remain shared with official omp.
 		const forkFile = !options.inMemory ? process.env.OMP_MP_CONFIG_FILE?.trim() : undefined;
 		this.#forkConfigPath = forkFile ? path.resolve(expandTilde(forkFile)) : null;
-		this.#configPath =
-			options.inMemory ? null : (this.#forkConfigPath ?? path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]));
+		this.#configPath = options.inMemory
+			? null
+			: (this.#forkConfigPath ?? path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]));
 		const configFiles = process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
 		if (options.configFiles) configFiles.push(...options.configFiles);
 		this.#configFiles = configFiles.map(file => path.resolve(this.#cwd, expandTilde(file)));
@@ -1388,7 +1389,9 @@ export class Settings {
 			const mutationGeneration = this.#persistedMutationGeneration;
 
 			const [officialResult, globalResult, projectResult, overlayResult] = await Promise.allSettled([
-				this.#forkConfigPath ? this.#readExistingMainYaml(false) : Promise.resolve({ settings: null, configPath: null }),
+				this.#forkConfigPath
+					? this.#readExistingMainYaml(false)
+					: Promise.resolve({ settings: null, configPath: null }),
 				this.#readWritableGlobalYaml(),
 				this.#readProjectSettings(false, { rejectNewWarnings: keepLastGood }),
 				this.#readConfigOverlays(false),
@@ -1847,7 +1850,8 @@ export class Settings {
 	 * Get a model role from only the global settings layer (an {@link overlay}'s own, else its parent's).
 	 */
 	getGlobalModelRole(role: ModelRole | string): string | undefined {
-		const modelId = this.#modelRolesFromLayer(this.#global)[role] ?? this.#modelRolesFromLayer(this.#officialGlobal)[role];
+		const modelId =
+			this.#modelRolesFromLayer(this.#global)[role] ?? this.#modelRolesFromLayer(this.#officialGlobal)[role];
 		return modelId || this.#parent?.getGlobalModelRole(role);
 	}
 

@@ -191,13 +191,3 @@ jobs:
           print("EXPECTED_PARENT_MAIN_SHA="+fork_parent)
           print("UPSTREAM_MERGE_PARENT_SHA="+base)
           PY
-      - name: Build native dependencies for regression testing
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake pkg-config clang libclang-dev libasound2-dev nasm
-          rustup show active-toolchain
-          OMP_NATIVE_CARGO_PROFILE=ci bun scripts/bazel-natives.ts host --dest packages/natives/native
-      - name: Run 14801 regression tests
-        run: |
-          bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts

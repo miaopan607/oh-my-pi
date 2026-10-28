@@ -2302,6 +2302,17 @@ export async function runUpdateCommand(opts: {
 		}
 		return;
 	}
+	// A fork binary copied outside the supported private omp-mp layout lacks
+	// the release-tag and verified installer. Never let the upstream updater
+	// replace that fork binary (or a different official omp found in PATH).
+	if (isCompiledBinary()) {
+		console.log(
+			chalk.yellow(
+				"This fork binary is not managed by the omp-mp installer. Install or update the fork using scripts/fork/install.sh (macOS/Linux) or scripts/fork/install.ps1 (Windows) from miaopan607/oh-my-pi.",
+			),
+		);
+		return;
+	}
 	const ompPath = resolveOmpPath();
 	const manager = ompPath ? await managedInstallName(ompPath) : undefined;
 	if (manager) {

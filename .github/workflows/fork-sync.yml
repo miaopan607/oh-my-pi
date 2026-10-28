@@ -69,12 +69,12 @@ jobs:
         shell: bash
         run: git push origin HEAD:main
 
-      - name: Start fork release for token-authored push
+      - name: Start multi-platform binary build for token-authored push
         if: steps.merge.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh workflow run fork-release.yml --repo "$GITHUB_REPOSITORY" --ref main
+        run: gh workflow run fork-binaries.yml --repo "$GITHUB_REPOSITORY" --ref main
 
       - name: Open or update a maintenance issue on failure
         if: ${{ failure() }}

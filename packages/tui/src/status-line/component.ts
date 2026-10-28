@@ -2049,7 +2049,12 @@ export class StatusLineComponent<TSession extends StatusLineSession = StatusLine
 			this.#usageFetchedAt = 0;
 			this.#cachedUsageContextKey = usageContextKey;
 		}
-		if (this.#usageInFlight || this.#usageStartTimer) return;
+		if (this.#usageInFlight || this.#usageStartTimer) {
+			// An in-flight usage fetch must not suppress the independent 5-minute
+			// saved-reset heartbeat, especially with a long display interval.
+			this.host.refreshResetCredits?.(session);
+			return;
+		}
 		const intervalMs = (this.#settings.usageRefreshInterval ?? 300) * 1000;
 		if (this.#usageFetchedAt > 0 && now - this.#usageFetchedAt < intervalMs) {
 			this.host.refreshResetCredits?.(session);

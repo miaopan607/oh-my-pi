@@ -22,17 +22,16 @@ jobs:
         uses: ./.github/actions/bun-install
       - name: Full TypeScript lint and type checks
         run: bun run check:ts
-      - name: Prepare native Rust toolchain and libraries
+      - name: Reuse signed upstream 18.13.2 native addon for fast regression
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake pkg-config clang libclang-dev libasound2-dev nasm
-          rustup show active-toolchain
-      - name: Build host native addon for session tests
-        shell: bash
-        env:
-          OMP_NATIVE_CARGO_PROFILE: ci
-        run: bun scripts/bazel-natives.ts host --dest packages/natives/native
+          set -euo pipefail
+          mkdir -p packages/natives/native
+          tarball="$(npm pack --silent --pack-destination "$RUNNER_TEMP" @oh-my-pi/pi-natives-linux-x64@18.13.2)"
+          mkdir -p "$RUNNER_TEMP/native-leaf"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/native-leaf"
+          cp "$RUNNER_TEMP/native-leaf/package/"*.node packages/natives/native/
+          ls -lh packages/natives/native/pi_natives.linux-x64*.node
       - name: Run original issue 14801 regression suite
         run: |
           bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts

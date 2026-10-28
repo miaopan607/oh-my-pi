@@ -43,6 +43,7 @@ import { buildInitialMessage } from "./cli/initial-message";
 import { formatKeyHint } from "@oh-my-pi/pi-tui/app-keybindings";
 import type { SessionPickerOptions } from "@oh-my-pi/pi-tui/apps/session-picker";
 import { fetchBuild } from "./cli/build-service";
+import { fetchForkLatestTag, getForkInstall, readForkInstalledTag, shouldOfferForkUpdate } from "./cli/fork-update";
 import { applyStartupCwd } from "./cli/startup-cwd";
 import { getLatestRelease, isSourceCheckout, managedInstallName } from "./cli/update-cli";
 import { findConfigFile } from "./config";
@@ -263,6 +264,16 @@ async function checkForNewVersion(currentVersion: string): Promise<string | unde
 		// Checkouts update through git and a manager (Tern) updates its omp itself:
 		// "run omp update" would be wrong advice for both.
 		if (isSourceCheckout() || (await managedInstallName(process.execPath))) return;
+		const forkInstall = getForkInstall();
+		if (forkInstall) {
+			const latest = await fetchForkLatestTag(fetch, 5_000);
+			const installed = await readForkInstalledTag(forkInstall.directory);
+			return shouldOfferForkUpdate(latest, installed, false) ? latest : undefined;
+		}
+		// This repository builds fork binaries, not upstream releases. A binary
+		// copied outside the private omp-mp directory must never advertise
+		// updates from the upstream build service.
+		if (isCompiledBinary()) return;
 		const channel = cfgUpdateChannel.get(settings);
 		// A compiled binary updates from the build service; naming the running
 		// version lets the service prepare the patch `omp update` will then use.

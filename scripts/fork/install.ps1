@@ -77,6 +77,20 @@ if ($upToDate) {
         if ($actualHash -ne $expectedHash) { throw "SHA-256 mismatch; old installation was not modified" }
         & $downloadedBinary --version | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Downloaded executable failed the version smoke test" }
+        # Old stable Releases may predate fork-only writable settings.
+        # Reject them before installing so the official config cannot be modified.
+        $oldForkConfig = [Environment]::GetEnvironmentVariable("OMP_MP_CONFIG_FILE", "Process")
+        try {
+            $env:OMP_MP_CONFIG_FILE = $ConfigPath
+            $reportedConfigDir = @(& $downloadedBinary config path | Select-Object -Last 1)
+            if ($LASTEXITCODE -ne 0 -or $reportedConfigDir.Count -ne 1 -or
+                $reportedConfigDir[0].Trim() -ine $ConfigDir) {
+                throw "Latest stable Release lacks isolated fork settings; install a newer verified Release."
+            }
+        } finally {
+            if ($null -eq $oldForkConfig) { Remove-Item Env:OMP_MP_CONFIG_FILE -ErrorAction SilentlyContinue }
+            else { $env:OMP_MP_CONFIG_FILE = $oldForkConfig }
+        }
         try {
             Move-Item -Force -LiteralPath $downloadedBinary -Destination $BinaryPath
         } catch {

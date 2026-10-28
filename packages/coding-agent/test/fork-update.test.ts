@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
 	fetchForkLatestTag,
 	matchesForkExecutable,
+	readForkInstalledTag,
 	parseForkReleaseTag,
 	shouldOfferForkUpdate,
 } from "@oh-my-pi/pi-coding-agent/cli/fork-update";
@@ -34,6 +38,19 @@ describe("fork built-in updater", () => {
 				"win32",
 			),
 		).toBe(true);
+	});
+
+	it("reads the installed fork tag from the installer state file", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-fork-update-test-"));
+		try {
+			expect(await readForkInstalledTag(dir)).toBeUndefined();
+			await Bun.write(path.join(dir, "release-tag"), "v18.13.2-mp.3\\n");
+			expect(await readForkInstalledTag(dir)).toBe("v18.13.2-mp.3");
+			await Bun.write(path.join(dir, "release-tag"), "v18.13.2\\n");
+			expect(await readForkInstalledTag(dir)).toBeUndefined();
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("compares the full fork tag, not the upstream base version", () => {

@@ -56,10 +56,10 @@ export function getForkInstall(): ForkInstall | undefined {
 }
 
 /** Fetch only from this fork, never from the upstream build service or npm. */
-export async function fetchForkLatestTag(fetchImpl: typeof fetch = fetch): Promise<string> {
+export async function fetchForkLatestTag(fetchImpl: typeof fetch = fetch, timeoutMs = 30_000): Promise<string> {
 	const response = await fetchImpl(FORK_LATEST, {
 		headers: { Accept: "application/vnd.github+json", "User-Agent": "omp-mp-updater" },
-		signal: withTimeoutSignal(30_000),
+		signal: withTimeoutSignal(timeoutMs),
 	});
 	if (!response.ok) throw new Error(`Fork GitHub Releases returned HTTP ${response.status}`);
 	const body: unknown = await response.json();
@@ -72,6 +72,17 @@ export function shouldOfferForkUpdate(latest: string, installed: string | undefi
 	return force || !installed || compareVersions(latest, installed) > 0;
 }
 
+/** The fork installer records the complete release tag independently of omp --version. */
+export async function readForkInstalledTag(directory: string): Promise<string | undefined> {
+	return await Bun.file(path.join(directory, "release-tag"))
+		.text()
+		.then(value => parseForkReleaseTag(value.trim()))
+		.catch((err: unknown) => {
+			if (isEnoent(err)) return undefined;
+			throw err;
+		});
+}
+
 /** Only updates the private omp-mp installation; never writes the official omp executable. */
 export async function runForkUpdate(
 	install: ForkInstall,
@@ -81,14 +92,7 @@ export async function runForkUpdate(
 		throw new Error("omp-mp only publishes stable fork releases; the upstream canary channel is unavailable.");
 	}
 	const latest = await fetchForkLatestTag();
-	const tagFile = Bun.file(path.join(install.directory, "release-tag"));
-	const recorded = await tagFile
-		.text()
-		.then(value => parseForkReleaseTag(value.trim()))
-		.catch((err: unknown) => {
-			if (isEnoent(err)) return undefined;
-			throw err;
-		});
+	const recorded = await readForkInstalledTag(install.directory);
 	console.log(chalk.dim(`Installed fork release: ${recorded ?? "unknown"}`));
 
 	if (!shouldOfferForkUpdate(latest, recorded, options.force)) {

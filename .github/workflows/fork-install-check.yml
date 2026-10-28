@@ -34,6 +34,7 @@ jobs:
           cat > "$TEST_ASSETS/omp-linux-x64" <<'EOF'
           #!/bin/sh
           if [ "$1" = "--version" ]; then echo 99.1.0; exit 0; fi
+          if [ "$1" = "config" ] && [ "${2:-}" = "path" ]; then dirname "$OMP_MP_CONFIG_FILE"; exit 0; fi
           printf '%s' "$OMP_MP_CONFIG_FILE" > "$TEST_ASSETS/actual-fork-settings"
           printf '%s' "$PI_CONFIG_FILES" > "$TEST_ASSETS/actual-extra-overlays"
           EOF

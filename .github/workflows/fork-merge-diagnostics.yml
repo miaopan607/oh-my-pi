@@ -1,0 +1,49 @@
+name: Diagnose upstream merge
+
+on:
+  push:
+    paths:
+      - ".github/workflows/fork-merge-diagnostics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Diagnose without modifying the repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/can1357/oh-my-pi.git
+          git fetch upstream main --no-tags
+          echo "FORK_HEAD=$(git rev-parse HEAD)"
+          echo "UPSTREAM_HEAD=$(git rev-parse FETCH_HEAD)"
+          echo "MERGE_BASE=$(git merge-base HEAD FETCH_HEAD)"
+          if git merge --no-commit --no-ff FETCH_HEAD; then
+            echo "NO_CONFLICTS"
+          else
+            echo "CONFLICTED_PATHS_START"
+            git diff --name-only --diff-filter=U
+            echo "CONFLICTED_PATHS_END"
+            echo "CONFLICT_HUNKS_START"
+            for f in $(git diff --name-only --diff-filter=U); do
+              echo "::group::$f"
+              # Output the conflict marker blocks with limited context, allowing
+              # a code review of each conflict without dumping full files.
+              awk '/^<<<<<<< /{show=1; lines=0} show { print; lines++ } /^>>>>>>> /{show=0} lines>220 {print "[conflict hunk truncated]"; show=0}' "$f" || true
+              echo "::endgroup::"
+            done
+            echo "CONFLICT_HUNKS_END"
+          fi
+          echo "WORKTREE_STATUS_START"
+          git status --short | head -120
+          echo "WORKTREE_STATUS_END"

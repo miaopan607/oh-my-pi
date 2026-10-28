@@ -1,0 +1,92 @@
+name: One-time semantic fork release migration
+
+on:
+  push:
+    branches:
+      - ops/migrate-semver-releases
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.repository == 'miaopan607/oh-my-pi'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Migrate verified binaries, then remove obsolete release entries
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          old_tag="fork-v18.13.2-b980b9ac1b79"
+          new_tag="v18.13.2-mp.1"
+          source_sha="b980b9ac1b7927d12aeb2dee133a50384095b665"
+
+          # The new release policy and updater must already be on main.
+          grep -Fq 'release-version.mjs' .github/workflows/fork-binaries.yml
+          grep -Fq 'v[0-9]+' scripts/fork/install.sh
+          if gh release view "$old_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            actual="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$old_tag" --jq '.target_commitish')"
+            [ "$actual" = "$source_sha" ] || { echo "::error::Unexpected original release source commit: $actual"; exit 1; }
+
+            mkdir -p "$RUNNER_TEMP/migrate-assets"
+            gh release download "$old_tag" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/migrate-assets" --pattern 'omp-*'
+            gh release download "$old_tag" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/migrate-assets" --pattern 'SHA256SUMS.txt'
+
+            cd "$RUNNER_TEMP/migrate-assets"
+            for f in omp-linux-x64 omp-darwin-arm64 omp-windows-x64.exe SHA256SUMS.txt; do
+              test -s "$f" || { echo "::error::Missing binary or checksum: $f"; exit 1; }
+            done
+            sha256sum --check SHA256SUMS.txt
+            cd "$GITHUB_WORKSPACE"
+
+            cat > "$RUNNER_TEMP/semantic-release-notes.md" <<EOF
+          # oh-my-pi 18.13.2 — fork revision 1
+
+          - **Upstream version:** 18.13.2
+          - **Fork revision:** 1
+          - **Verified source commit:** `$source_sha`
+          - **Fix:** configurable status-line usage refresh ([#14801](https://github.com/can1357/oh-my-pi/issues/14801))
+          - **Fork-only writable settings:** `~/.omp-mp/config.yml`; shares official credentials and sessions.
+          - **Binaries:** Linux x64, macOS ARM64 and Windows x64, plus SHA256SUMS.txt.
+          - **Original successful multi-platform build:** https://github.com/miaopan607/oh-my-pi/actions/runs/40688735575
+
+          This is the same verified executable build formerly published under a commit-hash tag, now assigned a SemVer-friendly fork revision. Future fork fixes increment the `mp.N` suffix.
+          EOF
+            if ! gh release view "$new_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release create "$new_tag" --draft --repo "$GITHUB_REPOSITORY" --target "$source_sha" --title "oh-my-pi v18.13.2-mp.1" --notes-file "$RUNNER_TEMP/semantic-release-notes.md"
+            fi
+            gh release upload "$new_tag" --repo "$GITHUB_REPOSITORY" --clobber               "$RUNNER_TEMP/migrate-assets/omp-linux-x64"               "$RUNNER_TEMP/migrate-assets/omp-darwin-arm64"               "$RUNNER_TEMP/migrate-assets/omp-windows-x64.exe"               "$RUNNER_TEMP/migrate-assets/SHA256SUMS.txt"
+          fi
+
+          # Always verify the replacement before any irreversible cleanup.
+          new_target="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$new_tag" --jq '.target_commitish')"
+          [ "$new_target" = "$source_sha" ] || { echo "::error::Replacement release points at unexpected commit: $new_target"; exit 1; }
+          for file in omp-linux-x64 omp-darwin-arm64 omp-windows-x64.exe SHA256SUMS.txt; do
+            gh release view "$new_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$file" ||
+              { echo "::error::Replacement release asset missing: $file"; exit 1; }
+          done
+          gh release edit "$new_tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest --title "oh-my-pi v18.13.2-mp.1"
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          [ "$latest" = "$new_tag" ] || { echo "::error::Latest release did not change: $latest"; exit 1; }
+
+          # These are duplicate legacy Release entries, not Git history. Git
+          # tags and commits remain intact (no --cleanup-tag).
+          # Old direct asset URLs stop working; /releases/latest remains stable.
+          legacy="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name | startswith("fork-v")) | .tag_name')"
+          while IFS= read -r old; do
+            [ -n "$old" ] || continue
+            echo "Removing redundant legacy Release entry $old (retaining Git tag)"
+            gh release delete "$old" --repo "$GITHUB_REPOSITORY" --yes
+          done <<EOF
+          $legacy
+          EOF
+          remaining="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name | startswith("fork-v")) | .tag_name')"
+          [ -z "$remaining" ] || { echo "::error::Some obsolete Release entries remain: $remaining"; exit 1; }
+          echo "DONE: replacement $new_tag is latest stable, old Git tags retained, legacy Release entries removed."

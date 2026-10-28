@@ -91,6 +91,12 @@ else
   [ "$ACTUAL" = "$EXPECTED" ] || fail "SHA-256 mismatch; existing version is untouched"
   chmod 755 "$TEMP_DIR/omp"
   "$TEMP_DIR/omp" --version >/dev/null || fail "Downloaded binary failed version smoke test"
+  # A stable Release from before the isolated config feature must never be
+  # installed by this launcher: it would still write to the official config.
+  FEATURE_CONFIG_DIR="$(OMP_MP_CONFIG_FILE="$CONFIG_DIR/config.yml" "$TEMP_DIR/omp" config path)" ||
+    fail "Downloaded binary could not verify isolated fork settings support"
+  [ "$FEATURE_CONFIG_DIR" = "$CONFIG_DIR" ] ||
+    fail "Latest stable Release is too old to isolate settings; use the next verified fork Release"
   mv -f "$TEMP_DIR/omp" "$TARGET" || fail "Cannot replace binary; close omp-mp and retry"
   printf '%s\n' "$TAG" > "$TAG_FILE"
   printf '%s\n' "$EXPECTED" > "$HASH_FILE"

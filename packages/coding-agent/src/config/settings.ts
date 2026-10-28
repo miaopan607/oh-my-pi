@@ -300,6 +300,8 @@ function projectLayerForMerge(project: RawSettings): RawSettings {
 
 /** One instance's own layers, lowest precedence first. */
 interface OwnLayers {
+	/** Read-only official settings; only present in an omp-mp installation. */
+	officialGlobal: RawSettings;
 	global: RawSettings;
 	project: RawSettings;
 	configOverlay: RawSettings;
@@ -311,7 +313,7 @@ export type OverlayLayers = Readonly<Pick<OwnLayers, "global" | "overrides">>;
 
 /** A persisted layer re-read from disk: its new value, the file(s) it came from, and the read-side state it commits. */
 interface LayerRefresh {
-	layer: "global" | "project" | "configOverlay";
+	layer: "officialGlobal" | "global" | "project" | "configOverlay";
 	settings: RawSettings;
 	source: string;
 	commit(): void;
@@ -579,6 +581,9 @@ function physicalTargetSegments(target: string, pathApi: typeof path = path): st
 
 export class Settings {
 	#configPath: string | null;
+	/** Separate writable fork config, while #agentDir stays on the official profile for auth and sessions. */
+	#forkConfigPath: string | null;
+	#officialGlobal: RawSettings = {};
 	#cwd: string;
 	#agentDir: string;
 	#storage: AgentStorage | null = null;
@@ -672,7 +677,13 @@ export class Settings {
 	private constructor(options: SettingsOptions = {}) {
 		this.#cwd = path.normalize(options.cwd ?? getProjectDir());
 		this.#agentDir = path.normalize(options.agentDir ?? getAgentDir());
-		this.#configPath = options.inMemory ? null : path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]);
+		// Opt-in used only by the dedicated omp-mp launcher. Do not redirect agentDir:
+		// credentials, sessions and agent.db must remain shared with official omp.
+		const forkFile = !options.inMemory ? process.env.OMP_MP_CONFIG_FILE?.trim() : undefined;
+		this.#forkConfigPath = forkFile ? path.resolve(expandTilde(forkFile)) : null;
+		this.#configPath = options.inMemory
+			? null
+			: (this.#forkConfigPath ?? path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]));
 		const configFiles = process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
 		if (options.configFiles) configFiles.push(...options.configFiles);
 		this.#configFiles = configFiles.map(file => path.resolve(this.#cwd, expandTilde(file)));
@@ -886,8 +897,10 @@ export class Settings {
 		const segments = setting.segments;
 		if (getByPath(this.#overrides, segments) !== undefined) return "runtime";
 		if (getByPath(this.#configOverlay, segments) !== undefined) return "overlay";
+		if (this.#forkConfigPath && getByPath(this.#global, segments) !== undefined) return "global";
 		if (getByPath(projectLayerForMerge(this.#project), segments) !== undefined) return "project";
 		if (getByPath(this.#global, segments) !== undefined) return "global";
+		if (getByPath(this.#officialGlobal, segments) !== undefined) return "global";
 		return this.#parent?.getProvenance(setting) ?? "default";
 	}
 
@@ -976,7 +989,14 @@ export class Settings {
 	writeMember(setting: AnySetting, item: string, { member }: { member: boolean }): void {
 		if (setting.type !== "array") throw new Error(`Setting ${setting.id} is not a list`);
 		const list = getByPath(this.#global, setting.segments);
-		const base: readonly unknown[] = Array.isArray(list) ? list : (setting.default as readonly unknown[]);
+		// In fork mode a list edit must be relative to the inherited official
+		// list, not reset it to the schema default before changing one member.
+		const inherited = this.#forkConfigPath ? getByPath(this.#mergedView(), setting.segments) : undefined;
+		const base: readonly unknown[] = Array.isArray(list)
+			? list
+			: Array.isArray(inherited)
+				? inherited
+				: (setting.default as readonly unknown[]);
 		const present = base.includes(item);
 		if (present === member && !this.#softPins.has(setting)) return;
 		let next = [...base];
@@ -1172,6 +1192,7 @@ export class Settings {
 			}
 		};
 		for (const filename of MAIN_CONFIG_FILENAMES) addFile(path.join(this.#agentDir, filename));
+		if (this.#forkConfigPath) addFile(this.#forkConfigPath);
 		const projectCwd = path.resolve(this.#cwd);
 		const projectConfigDir = getProjectAgentDir(projectCwd);
 		addFile(path.join(projectConfigDir, "config.yml"));
@@ -1297,11 +1318,13 @@ export class Settings {
 			});
 			cloned.#storage = this.#storage;
 			cloned.#configPath = this.#configPath;
+			cloned.#forkConfigPath = this.#forkConfigPath;
 			cloned.#project = this.#persist ? await cloned.#loadProjectSettings() : structuredClone(this.#project);
 			if (!this.#persist) cloned.#projectShellPathSource = this.#projectShellPathSource;
 			cloned.#configFiles = [...this.#configFiles];
 			cloned.#overlayShellPathSource = this.#overlayShellPathSource;
 		}
+		cloned.#officialGlobal = structuredClone(this.#officialGlobal);
 		cloned.#global = structuredClone(this.#global);
 		cloned.#configOverlay = structuredClone(this.#configOverlay);
 		// A soft-pinned default yields to a value the clone's own scope configures.
@@ -1365,13 +1388,16 @@ export class Settings {
 			}
 			const mutationGeneration = this.#persistedMutationGeneration;
 
-			const [globalResult, projectResult, overlayResult] = await Promise.allSettled([
-				this.#readExistingMainYaml(false),
+			const [officialResult, globalResult, projectResult, overlayResult] = await Promise.allSettled([
+				this.#forkConfigPath
+					? this.#readExistingMainYaml(false)
+					: Promise.resolve({ settings: null, configPath: null }),
+				this.#readWritableGlobalYaml(),
 				this.#readProjectSettings(false, { rejectNewWarnings: keepLastGood }),
 				this.#readConfigOverlays(false),
 			]);
 			if (mutationGeneration !== this.#persistedMutationGeneration) continue;
-			for (const result of [globalResult, projectResult, overlayResult]) {
+			for (const result of [officialResult, globalResult, projectResult, overlayResult]) {
 				if (result.status === "fulfilled") continue;
 				if (!keepLastGood) throw result.reason;
 				logger.warn("Settings: keeping last good config; on-disk change failed to load", {
@@ -1380,6 +1406,14 @@ export class Settings {
 			}
 
 			const refreshed: LayerRefresh[] = [];
+			if (officialResult.status === "fulfilled" && this.#forkConfigPath) {
+				refreshed.push({
+					layer: "officialGlobal",
+					settings: officialResult.value.settings ?? {},
+					source: officialResult.value.configPath ?? path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]),
+					commit: () => {},
+				});
+			}
 			if (globalResult.status === "fulfilled") {
 				const { configPath } = globalResult.value;
 				// A config this instance moved aside as malformed reads as missing until a save
@@ -1434,6 +1468,7 @@ export class Settings {
 
 			const previous = this.#snapshot();
 			for (const refresh of adopted) refresh.commit();
+			this.#officialGlobal = layers.officialGlobal;
 			this.#global = layers.global;
 			this.#project = layers.project;
 			this.#configOverlay = layers.configOverlay;
@@ -1496,6 +1531,7 @@ export class Settings {
 			await this.flush();
 			const project = this.#persist ? await this.#readProjectSettings(true, { cwd: normalized }) : undefined;
 			const candidate: OwnLayers = {
+				officialGlobal: this.#officialGlobal,
 				global: this.#global,
 				project: project?.settings ?? this.#project,
 				configOverlay: this.#configOverlay,
@@ -1567,7 +1603,7 @@ export class Settings {
 	 * reports its parent's layer with the overlay's own writes merged on top.
 	 */
 	getGlobalSettings(): RawSettings {
-		const own = structuredClone(this.#global);
+		const own = this.#deepMerge(structuredClone(this.#officialGlobal), structuredClone(this.#global));
 		return this.#parent ? this.#deepMerge(this.#parent.getGlobalSettings(), own) : own;
 	}
 
@@ -1599,11 +1635,15 @@ export class Settings {
 		if (Object.hasOwn(this.#configOverlay, "shellPath")) {
 			return this.#overlayShellPathSource ?? "the active config overlay";
 		}
+		if (this.#forkConfigPath && Object.hasOwn(this.#global, "shellPath")) {
+			return this.#configPath ?? "fork global configuration";
+		}
 		if (Object.hasOwn(this.#project, "shellPath")) {
 			return this.#projectShellPathSource ?? "the active project configuration";
 		}
 		if (this.#parent && !Object.hasOwn(this.#global, "shellPath")) return this.#parent.#shellPathSource();
-		return this.#configPath ?? path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]);
+		if (Object.hasOwn(this.#global, "shellPath")) return this.#configPath ?? "fork global configuration";
+		return path.join(this.#agentDir, MAIN_CONFIG_FILENAMES[0]);
 	}
 
 	/**
@@ -1810,7 +1850,8 @@ export class Settings {
 	 * Get a model role from only the global settings layer (an {@link overlay}'s own, else its parent's).
 	 */
 	getGlobalModelRole(role: ModelRole | string): string | undefined {
-		const modelId = this.#modelRolesFromLayer(this.#global)[role];
+		const modelId =
+			this.#modelRolesFromLayer(this.#global)[role] ?? this.#modelRolesFromLayer(this.#officialGlobal)[role];
 		return modelId || this.#parent?.getGlobalModelRole(role);
 	}
 
@@ -1836,8 +1877,10 @@ export class Settings {
 	getModelRoleProvenance(role: ModelRole | string): SettingProvenance {
 		if (this.#modelRoleLayerOwns(this.#overrides, role)) return "runtime";
 		if (this.#modelRoleLayerOwns(this.#configOverlay, role)) return "overlay";
+		if (this.#forkConfigPath && this.#modelRoleLayerOwns(this.#global, role)) return "global";
 		if (this.#modelRoleLayerOwns(projectLayerForMerge(this.#project), role)) return "project";
 		if (this.#modelRoleLayerOwns(this.#global, role)) return "global";
+		if (this.#modelRoleLayerOwns(this.#officialGlobal, role)) return "global";
 		return this.#parent?.getModelRoleProvenance(role) ?? "default";
 	}
 
@@ -1845,6 +1888,7 @@ export class Settings {
 	 * Get the persisted layer supplying a model role (project/global/default only).
 	 */
 	getModelRoleSource(role: ModelRole | string): "project" | "global" | "default" {
+		if (this.#forkConfigPath && this.#modelRoleLayerOwns(this.#global, role)) return "global";
 		if (this.getProjectModelRole(role)) return "project";
 		if (this.getGlobalModelRole(role)) return "global";
 		return "default";
@@ -1864,8 +1908,9 @@ export class Settings {
 		const layers = [
 			{ layer: this.#overrides, source: "runtime", tombstone: true },
 			{ layer: this.#configOverlay, source: "overlay", tombstone: true },
+			...(this.#forkConfigPath ? [{ layer: this.#global, source: "global" as const, tombstone: false }] : []),
 			{ layer: projectLayerForMerge(this.#project), source: "project", tombstone: false },
-			{ layer: this.#global, source: "global", tombstone: false },
+			{ layer: this.#forkConfigPath ? this.#officialGlobal : this.#global, source: "global", tombstone: false },
 		] as const;
 		for (const { layer, source, tombstone } of layers) {
 			const presets = getByPath(layer, ["modelPresets"]);
@@ -1938,6 +1983,15 @@ export class Settings {
 	}
 	async #loadGlobalSettings(): Promise<void> {
 		this.#storage = await AgentStorage.open(getAgentDbPath(this.#agentDir));
+		if (this.#forkConfigPath) {
+			// Reading the official file must never quarantine, migrate or write it.
+			// Only the dedicated fork file is a writable global layer.
+			const official = await this.#readExistingMainYaml(false);
+			this.#officialGlobal = official.settings ?? {};
+			this.#global = (await this.#loadYamlIfPresentForStartup(this.#forkConfigPath)) ?? {};
+			await this.#seedLastChangelogVersionMarker();
+			return;
+		}
 		const existingConfig = await this.#loadExistingMainYaml();
 		if (existingConfig) {
 			this.#global = existingConfig;
@@ -1949,10 +2003,15 @@ export class Settings {
 	}
 
 	async #loadReadOnly(): Promise<Settings> {
-		const [globalResult, projectResult] = await Promise.allSettled([
-			this.#loadExistingMainYaml(),
+		const [officialResult, globalResult, projectResult] = await Promise.allSettled([
+			this.#forkConfigPath ? this.#readExistingMainYaml(false) : Promise.resolve({ settings: null }),
+			this.#forkConfigPath
+				? this.#readWritableGlobalYaml().then(result => result.settings)
+				: this.#loadExistingMainYaml(),
 			this.#loadProjectSettings(),
 		]);
+		if (officialResult.status === "rejected") throw officialResult.reason;
+		if (officialResult.value.settings) this.#officialGlobal = officialResult.value.settings;
 		if (globalResult.status === "rejected") throw globalResult.reason;
 		if (projectResult.status === "rejected") throw projectResult.reason;
 		if (globalResult.value) {
@@ -2364,6 +2423,16 @@ export class Settings {
 			case "unreadable":
 				throw new Error(`Failed to read settings config ${filePath}: ${String(result.error)}`);
 		}
+	}
+
+	/** Fork mode routes saves and reloads to the dedicated file, never the official config. */
+	async #readWritableGlobalYaml(): Promise<MainYamlReadResult> {
+		if (!this.#forkConfigPath) return this.#readExistingMainYaml(false);
+		const settings = this.#unwrapYamlLoadResult(
+			this.#forkConfigPath,
+			await this.#loadYamlIfPresent(this.#forkConfigPath, false),
+		);
+		return { settings, configPath: this.#forkConfigPath };
 	}
 
 	async #readExistingMainYaml(quarantineInvalid: boolean): Promise<MainYamlReadResult> {
@@ -3884,6 +3953,7 @@ export class Settings {
 
 	#ownLayers(): OwnLayers {
 		return {
+			officialGlobal: this.#officialGlobal,
 			global: this.#global,
 			project: this.#project,
 			configOverlay: this.#configOverlay,
@@ -3893,7 +3963,15 @@ export class Settings {
 
 	/** `layers` (global, project, `--config` overlay, runtime) merged in precedence order. */
 	#mergeOwnLayers(layers: OwnLayers): RawSettings {
-		let merged = this.#deepMerge(this.#deepMerge({}, layers.global), projectLayerForMerge(layers.project));
+		let merged: RawSettings;
+		if (this.#forkConfigPath) {
+			// The official base is read-only. Fork-owned writes take precedence
+			// over both the official global config and project configuration.
+			merged = this.#deepMerge(this.#deepMerge({}, layers.officialGlobal), projectLayerForMerge(layers.project));
+			merged = this.#deepMerge(merged, layers.global);
+		} else {
+			merged = this.#deepMerge(this.#deepMerge({}, layers.global), projectLayerForMerge(layers.project));
+		}
 		merged = this.#deepMerge(merged, layers.configOverlay);
 		return this.#deepMerge(merged, layers.overrides);
 	}

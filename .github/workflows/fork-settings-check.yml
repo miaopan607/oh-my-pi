@@ -1,0 +1,35 @@
+name: Verify isolated fork settings writes
+
+on:
+  pull_request:
+    paths:
+      - "packages/coding-agent/src/config/settings.ts"
+      - "packages/coding-agent/test/config/fork-settings-isolation.test.ts"
+      - "scripts/fork/**"
+      - ".github/workflows/fork-settings-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  settings:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/bun-install
+      - name: Type check and lint settings implementation
+        run: bun run check:ts
+      - name: Prepare matching native addon for settings persistence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packages/natives/native
+          tarball="$(npm pack --silent --pack-destination "$RUNNER_TEMP" @oh-my-pi/pi-natives-linux-x64@18.13.2)"
+          mkdir -p "$RUNNER_TEMP/native-leaf"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/native-leaf"
+          cp "$RUNNER_TEMP/native-leaf/package/"*.node packages/natives/native/
+          ls -lh packages/natives/native/pi_natives.linux-x64*.node
+      - name: Isolated fork settings regression tests
+        run: bun test packages/coding-agent/test/config/fork-settings-isolation.test.ts packages/coding-agent/test/config/settings-entry-writes.test.ts packages/coding-agent/test/config/settings-reload.test.ts

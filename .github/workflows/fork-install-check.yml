@@ -34,7 +34,8 @@ jobs:
           cat > "$TEST_ASSETS/omp-linux-x64" <<'EOF'
           #!/bin/sh
           if [ "$1" = "--version" ]; then echo 99.1.0; exit 0; fi
-          printf '%s' "$PI_CONFIG_FILES" > "$TEST_ASSETS/actual-overlay"
+          printf '%s' "$OMP_MP_CONFIG_FILE" > "$TEST_ASSETS/actual-fork-settings"
+          printf '%s' "$PI_CONFIG_FILES" > "$TEST_ASSETS/actual-extra-overlays"
           EOF
           chmod +x "$TEST_ASSETS/omp-linux-x64"
           (cd "$TEST_ASSETS" && sha256sum omp-linux-x64 > SHA256SUMS.txt)
@@ -66,7 +67,8 @@ jobs:
           echo 'statusLine: { usageRefreshInterval: 60 }' > "$HOME/.omp-mp/config.yml"
           export PI_CONFIG_FILES="$HOME/.omp/agent/config.yml"
           "$HOME/.local/bin/omp-mp" probe
-          test "$(cat "$TEST_ASSETS/actual-overlay")" = "$HOME/.omp/agent/config.yml:$HOME/.omp-mp/config.yml"
+          test "$(cat "$TEST_ASSETS/actual-fork-settings")" = "$HOME/.omp-mp/config.yml"
+          test "$(cat "$TEST_ASSETS/actual-extra-overlays")" = "$HOME/.omp/agent/config.yml"
           test "$("$HOME/.local/bin/omp-mp" --fork-config)" = "$HOME/.omp-mp/config.yml"
           "$HOME/.local/bin/omp-mp" --fork-update
           grep -q 'usageRefreshInterval: 60' "$HOME/.omp-mp/config.yml"
@@ -92,4 +94,4 @@ jobs:
           $scriptText = Get-Content 'scripts/fork/install.ps1' -Raw
           if (-not $scriptText.Contains('omp-mp.cmd')) { throw "Dedicated launcher missing" }
           if (-not $scriptText.Contains('Get-FileHash')) { throw "SHA verification missing" }
-          if (-not $scriptText.Contains('PI_CONFIG_FILES')) { throw "Configuration overlay missing" }
+          if (-not $scriptText.Contains('OMP_MP_CONFIG_FILE')) { throw "Separate writable fork configuration missing" }

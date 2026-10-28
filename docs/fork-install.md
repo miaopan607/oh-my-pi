@@ -54,6 +54,7 @@ project settings:
 - Windows: `%USERPROFILE%\\.omp-mp\\config.yml`
 
 The installer creates that file with `{}` if it does not already exist.
+It is the **fork's writable global settings file**, not a read-only CLI overlay.
 You can override only the settings that are different for the fork:
 
 ```yaml
@@ -63,17 +64,29 @@ statusLine:
 ```
 
 Other settings continue to come from the official installation; the official
-`omp` command ignores this overlay completely. The launcher appends the
-overlay to `PI_CONFIG_FILES` (which supports multiple platform-delimited YAML
-paths) and preserves any existing entries. An explicit `--config` flag can
-still override it for a single invocation.
+`omp` command ignores this fork file completely. The launcher sets
+`OMP_MP_CONFIG_FILE` to enable the separate writable layer inside the Settings
+store. `omp-mp config set`, `omp-mp config reset`, and interactive `/settings`
+write **only** to the fork config; the official global config is read-only
+when using `omp-mp`. After a fork-only value is reset/unset, the value from
+the official config (or project settings) becomes effective again.
 
-**Important write behavior:** `omp-mp config set` and interactive
-`/settings` retain the upstream default behavior: they write to the shared
-official global config. To change a **fork-only override**, edit
-`~/.omp-mp/config.yml` instead; run `omp-mp --fork-config` to print its
-location. This prevents the fork installer itself from overwriting official
-settings, but does **not** claim in-app setting changes are isolated.
+The normal project `.omp/config.yml` is still read. Precedence in fork mode is:
+official global → project → fork writable global → explicit `PI_CONFIG_FILES`
+or `--config` overlays → runtime overrides. Existing `PI_CONFIG_FILES`
+entries are preserved without modification. An explicit `--config` file can
+still override a value for one invocation but is never written.
+
+The shared official **credentials, sessions and agent database** remain in the
+official agent directory, so those are deliberately *not* isolated. Project
+model-role writes in `modelRoleStorage: project` mode are likewise intentionally
+project-scoped; only global settings writes are redirected.
+
+Print the fork settings file location:
+
+```sh
+omp-mp --fork-config
+```
 
 Named profiles (`--profile work` / `OMP_PROFILE=work`) naturally select
 the official *named* profile; this is not a copy of the default profile.

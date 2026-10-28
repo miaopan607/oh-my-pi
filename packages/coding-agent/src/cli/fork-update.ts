@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { $ } from "bun";
-import { compareVersions, isCompiledBinary, isRecord } from "@oh-my-pi/pi-utils";
+import { compareVersions, isCompiledBinary, isEnoent, isRecord } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { withTimeoutSignal } from "../utils/fetch-timeout";
 
@@ -82,7 +82,13 @@ export async function runForkUpdate(
 	}
 	const latest = await fetchForkLatestTag();
 	const tagFile = Bun.file(path.join(install.directory, "release-tag"));
-	const recorded = (await tagFile.exists()) ? parseForkReleaseTag((await tagFile.text()).trim()) : undefined;
+	const recorded = await tagFile
+		.text()
+		.then(value => parseForkReleaseTag(value.trim()))
+		.catch((err: unknown) => {
+			if (isEnoent(err)) return undefined;
+			throw err;
+		});
 	console.log(chalk.dim(`Installed fork release: ${recorded ?? "unknown"}`));
 
 	if (!shouldOfferForkUpdate(latest, recorded, options.force)) {
@@ -95,7 +101,11 @@ export async function runForkUpdate(
 	// Windows does not permit replacing the running .exe. The external launcher
 	// runs the same verified installer after the CLI process has exited.
 	if (process.platform === "win32") {
-		console.log(chalk.yellow("Close omp-mp, then run 'omp-mp --fork-update' in a new terminal."));
+		console.log(
+			chalk.yellow(
+				`Close omp-mp, then run 'omp-mp --fork-update${options.force ? " --force" : ""}' in a new terminal.`,
+			),
+		);
 		return;
 	}
 	if (!(await Bun.file(install.installer).exists())) {

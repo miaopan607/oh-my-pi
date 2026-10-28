@@ -41,6 +41,7 @@ import {
 } from "./npm-registry";
 
 import { cfgUpdateChannel } from "../modes/settings";
+import { getForkInstall, runForkUpdate } from "./fork-update";
 
 const PACKAGE = "@oh-my-pi/pi-coding-agent";
 const HOMEBREW_FORMULA = "can1357/tap/omp";
@@ -2288,6 +2289,19 @@ export async function runUpdateCommand(opts: {
 	check: boolean;
 	channel?: UpdateChannel;
 }): Promise<void> {
+	// The separately installed omp-mp fork still contains an executable named
+	// omp. Route it before PATH/manager detection, which could otherwise find
+	// the official omp and replace it with an upstream npm or service build.
+	const forkInstall = getForkInstall();
+	if (forkInstall) {
+		try {
+			await runForkUpdate(forkInstall, opts);
+		} catch (err) {
+			console.error(chalk.red(`Fork update failed: ${err}`));
+			process.exit(1);
+		}
+		return;
+	}
 	const ompPath = resolveOmpPath();
 	const manager = ompPath ? await managedInstallName(ompPath) : undefined;
 	if (manager) {

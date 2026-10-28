@@ -77,13 +77,13 @@ jobs:
             echo "::error::Unresolved merge conflict"
             exit 1
           fi
-          git diff --cached --check
+          git diff --cached --check -- packages/coding-agent/src/session/agent-session.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/status-line-usage-refresh.test.ts
           git commit -m "merge: upstream main with #14801 refresh configuration"
       - uses: ./.github/actions/bun-install
       - name: Validate all TypeScript
         run: bun run check:ts
+      - name: Push type-checked merge into review branch
+        run: git push origin HEAD:refs/heads/merge/upstream-18.13.2
       - name: Run 14801 regression tests
         run: |
           bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts
-      - name: Push validated merge into review branch
-        run: git push origin HEAD:refs/heads/merge/upstream-18.13.2

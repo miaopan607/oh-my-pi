@@ -2,7 +2,7 @@ name: Build and publish fork binaries
 
 on:
   push:
-    branches: [main, ci/binary-pipeline]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

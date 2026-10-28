@@ -1,5 +1,5 @@
 name: Verify fork 18.13.2 merge regressions
-# Debug single remaining Claude heartbeat regression in ephemeral runner.
+# Debug in-flight usage query resetting independent heartbeat (e3f3804c).
 
 on:
   push:

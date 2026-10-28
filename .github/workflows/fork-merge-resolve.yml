@@ -117,6 +117,15 @@ jobs:
           git diff --cached --check -- packages/coding-agent/src/session/agent-session.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/status-line-usage-refresh.test.ts
           git commit -m "merge: upstream main with #14801 refresh configuration"
       - uses: ./.github/actions/bun-install
+      - name: Format resolved session file and commit mechanical formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx oxfmt packages/coding-agent/src/session/agent-session.ts
+          if ! git diff --quiet -- packages/coding-agent/src/session/agent-session.ts; then
+            git add packages/coding-agent/src/session/agent-session.ts
+            git commit -m "style: format merged upstream reset sweep"
+          fi
       - name: Validate all TypeScript
         run: bun run check:ts
       - name: Push type-checked merge into review branch

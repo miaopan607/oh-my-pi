@@ -1,0 +1,89 @@
+name: Resolve October upstream conflict
+
+on:
+  push:
+    branches: [ci/binary-pipeline]
+    paths:
+      - ".github/workflows/fork-merge-resolve.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    if: github.repository == 'miaopan607/oh-my-pi'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge and resolve the four reviewed conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/can1357/oh-my-pi.git
+          git fetch upstream main --no-tags
+          echo "Upstream commit: $(git rev-parse FETCH_HEAD)"
+          git merge --no-commit --no-ff FETCH_HEAD || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          paths = {
+              "packages/coding-agent/src/session/agent-session.ts": 3,
+              "packages/coding-agent/test/claude-auto-reset-integration.test.ts": 1,
+              "packages/coding-agent/test/codex-auto-reset.test.ts": 1,
+              "packages/coding-agent/test/status-line-usage-refresh.test.ts": 1,
+          }
+          pat = re.compile(r"^<<<<<<< HEAD\n(.*?)^=======\n(.*?)^>>>>>>>[^\n]*\n",re.M|re.S)
+          for file, expected in paths.items():
+              p=Path(file)
+              text=p.read_text()
+              matches=list(pat.finditer(text))
+              if len(matches)!=expected:
+                  raise SystemExit(f"Unexpected conflicts in {file}: {len(matches)} expected {expected}")
+              def resolve(m):
+                  ours,theirs=m.group(1),m.group(2)
+                  if file.endswith("agent-session.ts"):
+                      if "this.#resetSweepReports = reports;" in ours and "this.#usageReports = reports;" in theirs:
+                          return theirs.replace("this.#usageReports = reports;", "this.#usageReports = reports;\n\t\t\tthis.#resetSweepReports = reports;")
+                      if "refreshResetCredits(): void" in ours and "get cachedUsageReports()" in theirs:
+                          ours=ours.replace("this.#resetSweepReports);", "this.#resetSweepReports ?? []);")
+                          return ours.rstrip("\n")+"\n\t}\n\n"+theirs
+                      if "coordinator.sweepPromise" in ours and "coordinator.sweepPromise" in theirs:
+                          return theirs
+                  if file.endswith("claude-auto-reset-integration.test.ts"):
+                      if 'import { TempDir }' in ours and 'setAgentDir' in theirs:
+                          return ours.replace('import { TempDir } from "@oh-my-pi/pi-utils";', 'import { __resetDirsFromEnvForTests, setAgentDir, TempDir } from "@oh-my-pi/pi-utils";')
+                  if file.endswith("codex-auto-reset.test.ts"):
+                      if "ResetCreditAccountStatus" in ours and "ResetCreditTarget" in theirs:
+                          return 'import type { ResetCreditAccountStatus, ResetCreditTarget, UsageReport } from "@oh-my-pi/pi-ai";\n'
+                  if file.endswith("status-line-usage-refresh.test.ts"):
+                      if "shows fresh usage at a shorter interval" in ours and "does not queue a usage refresh" in theirs:
+                          return ours.rstrip("\n")+"\n\t});\n\n"+theirs
+                  raise ValueError(f"Unexpected conflict context in {file}: {ours[:100]} / {theirs[:100]}")
+              resolved=pat.sub(resolve,text)
+              if "<<<<<<<" in resolved or ">>>>>>>" in resolved:
+                  raise ValueError(f"Leftover merge markers: {file}")
+              p.write_text(resolved)
+              print(f"Resolved {file}")
+          PY
+          git add -A
+          if git ls-files -u | grep -q .; then
+            git ls-files -u
+            echo "::error::Unresolved merge conflict"
+            exit 1
+          fi
+          git diff --cached --check
+          git commit -m "merge: upstream main with #14801 refresh configuration"
+      - uses: ./.github/actions/bun-install
+      - name: Validate all TypeScript
+        run: bun run check:ts
+      - name: Run 14801 regression tests
+        run: |
+          bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts
+      - name: Push validated merge into review branch
+        run: git push origin HEAD:refs/heads/merge/upstream-18.13.2

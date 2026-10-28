@@ -14124,7 +14124,7 @@ export class AgentSession implements SettingsScope {
 	/** Preserve the five-minute reset heartbeat while displayed usage stays cached. */
 	refreshResetCredits(): void {
 		if (this.#isDisposed || Date.now() - this.#resetCoordinator.lastSweepAt < 5 * 60_000) return;
-		this.#maybeScheduleResetSweep(this.#resetSweepReports ?? []);
+		this.#maybeScheduleResetSweep(this.#resetSweepReports, true);
 	}
 
 	/** The newest usage snapshot, available without a network call. */
@@ -14646,7 +14646,7 @@ export class AgentSession implements SettingsScope {
 	 * Claude finds its candidates in the usage reports' reset inventory first, so a
 	 * sweep with nothing to salvage lists no Claude account.
 	 */
-	#maybeScheduleResetSweep(reports: UsageReport[] | null): void {
+	#maybeScheduleResetSweep(reports: UsageReport[] | null, heartbeat = false): void {
 		if (this.#isDisposed) return;
 		const coordinator = this.#resetCoordinator;
 		const codexCfg = cfgCodexResets.get(this.settings);
@@ -14669,7 +14669,7 @@ export class AgentSession implements SettingsScope {
 			if (codexEnabled) {
 				try {
 					const statuses = await this.listResetCredits(AbortSignal.timeout(10_000), "openai-codex");
-					const effectiveReports = overlayLiveResetCredits(reports, statuses);
+					const effectiveReports = overlayLiveResetCredits(reports, statuses, { synthesizeActive: true, nowMs: Date.now() });
 					const identity = this.#modelRegistry.authStorage.oauth.identity("openai-codex", this.sessionId);
 					const plan = this.#planCodexResets("sweep", effectiveReports, identity, coordinator);
 					await this.#redeemConsentedResets("openai-codex", codexCfg.autoRedeem, plan.actions, coordinator);
@@ -14687,7 +14687,7 @@ export class AgentSession implements SettingsScope {
 						coordinator,
 					);
 					const plan =
-						!reports || candidates.actions.length > 0
+						heartbeat || !reports || candidates.actions.length > 0
 							? this.#planClaudeResets(
 									"sweep",
 									reports,

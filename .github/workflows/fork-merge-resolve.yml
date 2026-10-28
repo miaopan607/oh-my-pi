@@ -70,6 +70,43 @@ jobs:
                   raise ValueError(f"Leftover merge markers: {file}")
               p.write_text(resolved)
               print(f"Resolved {file}")
+          # Rebuild the complete sweep function from the upstream implementation:
+          # the overlapping refactor left shared braces outside a conflict hunk.
+          # Retain the fork's 5-minute reset heartbeat and missing-report fallback.
+          import subprocess
+          session_file=Path("packages/coding-agent/src/session/agent-session.ts")
+          merged=session_file.read_text()
+          upstream=subprocess.check_output(
+              ["git","show","FETCH_HEAD:packages/coding-agent/src/session/agent-session.ts"],text=True
+          )
+          def sweep_span(data):
+              a=data.index("\t#maybeScheduleResetSweep(")
+              b=data.index("\n\t/**\n\t * Export session to HTML.",a)
+              return a,b
+          a,b=sweep_span(merged)
+          c,d=sweep_span(upstream)
+          sweep=upstream[c:d]
+          sweep=sweep.replace("reports: UsageReport[]", "reports: UsageReport[] | null",1)
+          sweep=sweep.replace(
+              'reports.some(report => report.provider === "openai-codex")',
+              '(reports?.some(report => report.provider === "openai-codex") || this.#modelRegistry.authStorage.credentials.hasOAuth("openai-codex"))'
+          )
+          sweep=sweep.replace(
+              'reports.some(report => report.provider === "anthropic")',
+              '(reports?.some(report => report.provider === "anthropic") || this.#modelRegistry.authStorage.credentials.hasOAuth("anthropic"))'
+          )
+          sweep=sweep.replace(
+              'claudeResetStatusesFromReports(accounts, reports)',
+              'claudeResetStatusesFromReports(accounts, reports ?? [])'
+          )
+          sweep=sweep.replace("candidates.actions.length > 0", "!reports || candidates.actions.length > 0")
+          sweep=sweep.replace(
+              "const coordinator = this.#resetCoordinator;",
+              "if (this.#isDisposed) return;\n\t\tconst coordinator = this.#resetCoordinator;",1
+          )
+          assert "hasOAuth" in sweep and "reports ?? []" in sweep
+          session_file.write_text(merged[:a]+sweep+merged[b:])
+          print("Reconciled complete upstream sweep implementation with fork heartbeat.")
           PY
           git add -A
           if git ls-files -u | grep -q .; then

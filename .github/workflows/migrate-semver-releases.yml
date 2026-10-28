@@ -72,7 +72,20 @@ jobs:
             gh release view "$new_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$file" ||
               { echo "::error::Replacement release asset missing: $file"; exit 1; }
           done
-          gh release edit "$new_tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest --title "oh-my-pi v18.13.2-mp.1"
+          cat > "$RUNNER_TEMP/final-release-notes.md" <<'NOTES_EOF'
+          # oh-my-pi 18.13.2 — personal fork revision 1
+
+          - **Upstream:** 18.13.2
+          - **Fork revision:** 1 (future fixes increment mp.2, mp.3, etc.)
+          - **Verified source commit:** `b980b9ac1b7927d12aeb2dee133a50384095b665`
+          - **Fix:** configurable status-line usage refresh ([#14801](https://github.com/can1357/oh-my-pi/issues/14801)).
+          - **Fork configuration:** `~/.omp-mp/config.yml` holds fork-only writable overrides. Official credentials and sessions remain shared.
+          - **Downloads:** Linux x64, macOS ARM64 and Windows x64 executables plus `SHA256SUMS.txt`.
+          - **Verified cross-platform build:** https://github.com/miaopan607/oh-my-pi/actions/runs/40688735575
+
+          This is the same SHA-256-verified executable build previously published under a commit-hash tag, now available with a clear SemVer fork revision. Old source history tags are preserved.
+          NOTES_EOF
+          gh release edit "$new_tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest --title "oh-my-pi v18.13.2-mp.1" --notes-file "$RUNNER_TEMP/final-release-notes.md"
           latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
           [ "$latest" = "$new_tag" ] || { echo "::error::Latest release did not change: $latest"; exit 1; }
 

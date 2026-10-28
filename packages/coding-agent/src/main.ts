@@ -42,7 +42,6 @@ import { processFileArguments } from "./cli/file-processor";
 import { buildInitialMessage } from "./cli/initial-message";
 import { formatKeyHint } from "@oh-my-pi/pi-tui/app-keybindings";
 import type { SessionPickerOptions } from "@oh-my-pi/pi-tui/apps/session-picker";
-import { fetchBuild } from "./cli/build-service";
 import { fetchForkLatestTag, getForkInstall, readForkInstalledTag, shouldOfferForkUpdate } from "./cli/fork-update";
 import { applyStartupCwd } from "./cli/startup-cwd";
 import { getLatestRelease, isSourceCheckout, managedInstallName } from "./cli/update-cli";
@@ -275,11 +274,8 @@ async function checkForNewVersion(currentVersion: string): Promise<string | unde
 		// updates from the upstream build service.
 		if (isCompiledBinary()) return;
 		const channel = cfgUpdateChannel.get(settings);
-		// A compiled binary updates from the build service; naming the running
-		// version lets the service prepare the patch `omp update` will then use.
-		const { version } = isCompiledBinary()
-			? await fetchBuild({ channel }, { timeoutMs: 5_000, fromVersion: currentVersion })
-			: await getLatestRelease({ timeoutMs: 5_000, channel });
+		// Uncompiled package-manager installs still follow their npm registry.
+		const { version } = await getLatestRelease({ timeoutMs: 5_000, channel });
 		return Bun.semver.order(version, currentVersion) > 0 ? version : undefined;
 	} catch {
 		return undefined;

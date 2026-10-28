@@ -44,9 +44,9 @@ describe("fork built-in updater", () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-fork-update-test-"));
 		try {
 			expect(await readForkInstalledTag(dir)).toBeUndefined();
-			await Bun.write(path.join(dir, "release-tag"), "v18.13.2-mp.3\\n");
+			await Bun.write(path.join(dir, "release-tag"), "v18.13.2-mp.3\n");
 			expect(await readForkInstalledTag(dir)).toBe("v18.13.2-mp.3");
-			await Bun.write(path.join(dir, "release-tag"), "v18.13.2\\n");
+			await Bun.write(path.join(dir, "release-tag"), "v18.13.2\n");
 			expect(await readForkInstalledTag(dir)).toBeUndefined();
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });

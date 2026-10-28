@@ -25,6 +25,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          # A fine-grained PAT with Contents+Workflows write is needed when upstream changes CI workflows.
+          token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
 
       - name: Merge upstream without rewriting history
         id: merge
@@ -72,14 +74,14 @@ jobs:
       - name: Start multi-platform binary build for token-authored push
         if: steps.merge.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
         shell: bash
         run: gh workflow run fork-binaries.yml --repo "$GITHUB_REPOSITORY" --ref main
 
       - name: Open or update a maintenance issue on failure
         if: ${{ failure() }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
         shell: bash
         run: |
           title="Fork upstream sync requires attention"

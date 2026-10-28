@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: fork-binaries-${{ github.ref }}
@@ -87,6 +87,8 @@ jobs:
 
   publish:
     name: Publish verified three-platform release
+    permissions:
+      contents: write
     if: github.ref == 'refs/heads/main'
     needs: [validate, build]
     runs-on: ubuntu-22.04

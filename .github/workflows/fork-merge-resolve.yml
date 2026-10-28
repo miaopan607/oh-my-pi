@@ -1,5 +1,5 @@
 name: Verify fork 18.13.2 merge regressions
-# Check fork patch 698499e8 with live Claude report fallback.
+# Debug single remaining Claude heartbeat regression in ephemeral runner.
 
 on:
   push:
@@ -33,6 +33,18 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/native-leaf"
           cp "$RUNNER_TEMP/native-leaf/package/"*.node packages/natives/native/
           ls -lh packages/natives/native/pi_natives.linux-x64*.node
+      - name: Instrument Claude heartbeat test on runner only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("packages/coding-agent/test/claude-auto-reset-integration.test.ts")
+          code=p.read_text()
+          needle='expect(targets.map(target => target.creditId)).toEqual(autoRedeem === "yes" ? ["cedar-grant-1"] : []);'
+          assert code.count(needle)==1
+          trace='console.error("HEARTBEAT_DEBUG", JSON.stringify({ autoRedeem, hasUsage, initialListings, finalListings: listings.mock.calls.length, lastSweepAt: coordinator.lastSweepAt, now, targets }));'
+          p.write_text(code.replace(needle,trace+'\n\t\t\t\t'+needle))
+          PY
       - name: Run original issue 14801 regression suite
         run: |
           bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts

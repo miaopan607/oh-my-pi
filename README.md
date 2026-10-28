@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/miaopan607/oh-my-pi/main/scripts/fo
 irm https://raw.githubusercontent.com/miaopan607/oh-my-pi/main/scripts/fork/install.ps1 | iex
 ```
 
-Run `omp-mp` to launch, `omp-mp --fork-update` to upgrade, and `omp-mp --fork-auto-update` to enable daily update checks. See [fork-specific install and configuration](docs/fork-install.md) for PATH instructions, overlay precedence and limitations.
+Run `omp-mp` to launch, `omp-mp --fork-update` to upgrade, and `omp-mp --fork-auto-update` to enable daily update checks. **[Latest fork binary Release](https://github.com/miaopan607/oh-my-pi/releases/latest)** uses numbered SemVer tags like `v18.13.2-mp.1`; the Git SHA remains in release notes. See [fork-specific install and configuration](docs/fork-install.md) for PATH instructions, overlay precedence and limitations.
 
 **Official upstream installation methods follow below**. They install `omp` from upstream, not this fork.
 

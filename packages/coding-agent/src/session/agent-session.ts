@@ -14669,7 +14669,10 @@ export class AgentSession implements SettingsScope {
 			if (codexEnabled) {
 				try {
 					const statuses = await this.listResetCredits(AbortSignal.timeout(10_000), "openai-codex");
-					const effectiveReports = overlayLiveResetCredits(reports, statuses, { synthesizeActive: true, nowMs: Date.now() });
+					const effectiveReports = overlayLiveResetCredits(reports, statuses, {
+						synthesizeActive: true,
+						nowMs: Date.now(),
+					});
 					const identity = this.#modelRegistry.authStorage.oauth.identity("openai-codex", this.sessionId);
 					const plan = this.#planCodexResets("sweep", effectiveReports, identity, coordinator);
 					await this.#redeemConsentedResets("openai-codex", codexCfg.autoRedeem, plan.actions, coordinator);

@@ -61,10 +61,81 @@ esac
 RELEASE_JSON="$(curl -fLsS --retry 3 --connect-timeout 20 -H 'Accept: application/vnd.github+json' "$API")" \
   || fail "Cannot query the latest GitHub release"
 TAG="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-case "$TAG" in
-  fork-v*) ;;
-  *) fail "Unexpected release tag (expected fork-v*): $TAG" ;;
+printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-mp\.[1-9][0-9]*
+
+TARGET="$APP_DIR/omp"
+TAG_FILE="$APP_DIR/release-tag"
+HASH_FILE="$APP_DIR/installed-sha256"
+if [ -s "$TARGET" ] && [ -f "$TAG_FILE" ] && [ -f "$HASH_FILE" ] &&
+   [ "$(cat "$TAG_FILE")" = "$TAG" ] &&
+   [ "$(sha256_of "$TARGET")" = "$(cat "$HASH_FILE")" ]; then
+  printf 'omp-mp already up to date: %s\n' "$TAG"
+else
+  TEMP_DIR="$(mktemp -d)" || fail "Cannot create temporary install directory"
+  trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM
+  BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+  curl -fLsS --retry 3 --connect-timeout 20 "$BASE_URL/SHA256SUMS.txt" -o "$TEMP_DIR/SHA256SUMS.txt" ||
+    fail "Missing SHA256SUMS.txt in the latest Release"
+  EXPECTED="$(awk -v name="$ASSET" '$2 == name || $2 == "*"name { print $1; exit }' "$TEMP_DIR/SHA256SUMS.txt")"
+  case "$EXPECTED" in
+    ""|*[!0-9a-fA-F]*) fail "Release checksum missing or invalid for $ASSET" ;;
+  esac
+  [ "${#EXPECTED}" -eq 64 ] || fail "Invalid SHA-256 checksum length"
+  printf 'Downloading %s (%s)...\n' "$ASSET" "$TAG"
+  curl -fLsS --retry 3 --connect-timeout 20 "$BASE_URL/$ASSET" -o "$TEMP_DIR/omp" ||
+    fail "Failed to download $ASSET"
+  ACTUAL="$(sha256_of "$TEMP_DIR/omp")"
+  [ "$ACTUAL" = "$EXPECTED" ] || fail "SHA-256 mismatch; existing version is untouched"
+  chmod 755 "$TEMP_DIR/omp"
+  "$TEMP_DIR/omp" --version >/dev/null || fail "Downloaded binary failed version smoke test"
+  # A stable Release from before the isolated config feature must never be
+  # installed by this launcher: it would still write to the official config.
+  FEATURE_CONFIG_DIR="$(OMP_MP_CONFIG_FILE="$CONFIG_DIR/config.yml" "$TEMP_DIR/omp" config path)" ||
+    fail "Downloaded binary could not verify isolated fork settings support"
+  [ "$FEATURE_CONFIG_DIR" = "$CONFIG_DIR" ] ||
+    fail "Latest stable Release is too old to isolate settings; use the next verified fork Release"
+  mv -f "$TEMP_DIR/omp" "$TARGET" || fail "Cannot replace binary; close omp-mp and retry"
+  printf '%s\n' "$TAG" > "$TAG_FILE"
+  printf '%s\n' "$EXPECTED" > "$HASH_FILE"
+  printf 'Installed %s.\n' "$TAG"
+  rm -rf "$TEMP_DIR"
+  trap - EXIT HUP INT TERM
+fi
+
+LAUNCHER="$BIN_DIR/omp-mp"
+# Use the built-in overlay mechanism rather than reimplementing upstream
+# configuration loading. This keeps default-profile credentials and sessions.
+cat > "$LAUNCHER" <<'LAUNCHER_EOF'
+#!/bin/sh
+set -eu
+APP_DIR="${OMP_MP_DATA_DIR:-$HOME/.local/share/omp-mp}"
+CONFIG_DIR="${OMP_MP_CONFIG_DIR:-$HOME/.omp-mp}"
+case "${1:-}" in
+  --fork-update) exec /bin/sh "$APP_DIR/install.sh" --update ;;
+  --fork-auto-update) exec /bin/sh "$APP_DIR/install.sh" --enable-auto-update ;;
+  --fork-config) printf '%s\n' "$CONFIG_DIR/config.yml"; exit 0 ;;
 esac
+if [ ! -e "$CONFIG_DIR/config.yml" ]; then
+  mkdir -p "$CONFIG_DIR"
+  (umask 077; printf '{}\n' > "$CONFIG_DIR/config.yml")
+fi
+# Fork-only writable layer. Upstream's official profile, auth and
+# sessions remain at ~/.omp; no official settings file is ever written.
+# Existing PI_CONFIG_FILES overlays and explicit --config still work.
+OMP_MP_CONFIG_FILE="$CONFIG_DIR/config.yml"
+export OMP_MP_CONFIG_FILE
+exec "$APP_DIR/omp" "$@"
+LAUNCHER_EOF
+chmod 755 "$LAUNCHER"
+printf 'Command: %s\n' "$LAUNCHER"
+printf 'Fork overrides: %s/config.yml\n' "$CONFIG_DIR"
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *) printf 'Add %s to PATH, then run: omp-mp\n' "$BIN_DIR" ;;
+esac
+printf 'Update: omp-mp --fork-update | Daily updates: omp-mp --fork-auto-update\n'
+ ||
+  fail "Unexpected release tag (expected vX.Y.Z-mp.N): $TAG"
 
 TARGET="$APP_DIR/omp"
 TAG_FILE="$APP_DIR/release-tag"

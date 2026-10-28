@@ -45,6 +45,13 @@ curl -fLsS --retry 3 --connect-timeout 20 "$RAW_INSTALLER" -o "$NEW_INSTALLER" \
 chmod 700 "$NEW_INSTALLER"
 mv -f "$NEW_INSTALLER" "$APP_DIR/install.sh"
 
+# The in-app updater may explicitly request a verified reinstall.
+FORCE_UPDATE=0
+case "${2:-}" in
+  --force) FORCE_UPDATE=1 ;;
+  "") ;;
+  *) fail "Unknown option: $2" ;;
+esac
 case "${1:-}" in
   --enable-auto-update)
     command -v crontab >/dev/null 2>&1 || fail "crontab is unavailable; use omp-mp --fork-update manually"
@@ -67,7 +74,7 @@ printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-mp\.[1-9][0-9]*$' ||
 TARGET="$APP_DIR/omp"
 TAG_FILE="$APP_DIR/release-tag"
 HASH_FILE="$APP_DIR/installed-sha256"
-if [ -s "$TARGET" ] && [ -f "$TAG_FILE" ] && [ -f "$HASH_FILE" ] &&
+if [ "$FORCE_UPDATE" -eq 0 ] && [ -s "$TARGET" ] && [ -f "$TAG_FILE" ] && [ -f "$HASH_FILE" ] &&
    [ "$(cat "$TAG_FILE")" = "$TAG" ] &&
    [ "$(sha256_of "$TARGET")" = "$(cat "$HASH_FILE")" ]; then
   printf 'omp-mp already up to date: %s\n' "$TAG"

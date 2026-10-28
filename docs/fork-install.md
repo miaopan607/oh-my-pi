@@ -95,9 +95,28 @@ wins when keys conflict.
 
 ## Updates
 
+The **built-in** updater now recognizes the private `omp-mp` installation and
+checks **only** this fork's GitHub Releases, rather than upstream's npm packages
+or build service. It compares the full `vX.Y.Z-mp.N` release tag recorded by
+the fork installer, not just the upstream `omp --version` number.
+
 ```sh
-omp-mp --fork-update
+omp-mp update --check  # Check the fork's latest stable Release
+omp-mp update          # Update from this fork (macOS/Linux)
+omp-mp update --force  # Reinstall the fork Release (macOS/Linux)
+omp-mp --fork-update   # Manual update, all supported platforms
 ```
+
+On Windows, `omp-mp update --check` works inside the application, but Windows
+cannot overwrite an executable while it is running. `omp-mp update` therefore
+prints the fork update command instead of attempting an unsafe replacement.
+Close the `omp-mp` session and run `omp-mp --fork-update` from another
+terminal. To force a verified reinstall on Windows, use
+`omp-mp --fork-update --force`.
+
+The fork publishes stable Releases only. It does not download the official
+`omp` canary channel; `omp-mp update --canary` is rejected. The official
+`omp update` command is unaffected and still updates the upstream installation.
 
 Check once daily in the operating system's scheduler:
 

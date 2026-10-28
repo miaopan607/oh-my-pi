@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Fetch } from "@oh-my-pi/pi-coding-agent/cli/build-service";
 import {
 	fetchForkLatestTag,
 	matchesForkExecutable,
@@ -53,7 +54,7 @@ describe("fork built-in updater", () => {
 
 	it("fetches latest metadata from the fork repository only", async () => {
 		const calls: string[] = [];
-		const fetchImpl: typeof fetch = async url => {
+		const fetchImpl: Fetch = async url => {
 			calls.push(String(url));
 			return Response.json({ tag_name: "v18.13.2-mp.7" });
 		};
@@ -63,8 +64,8 @@ describe("fork built-in updater", () => {
 	});
 
 	it("rejects malformed or unavailable releases", async () => {
-		const invalid: typeof fetch = async () => Response.json({ tag_name: "v18.13.3" });
-		const missing: typeof fetch = async () => new Response("Not Found", { status: 404 });
+		const invalid: Fetch = async () => Response.json({ tag_name: "v18.13.3" });
+		const missing: Fetch = async () => new Response("Not Found", { status: 404 });
 		await expect(fetchForkLatestTag(invalid)).rejects.toThrow("invalid tag");
 		await expect(fetchForkLatestTag(missing)).rejects.toThrow("HTTP 404");
 	});

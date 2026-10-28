@@ -164,7 +164,8 @@ jobs:
                   return json.load(response)
           base=git("rev-parse","FETCH_HEAD").decode().strip()
           upstream_tree=git("rev-parse","FETCH_HEAD^{tree}").decode().strip()
-          fork_parent=git("rev-parse","HEAD^1").decode().strip()
+          merge_ref=git("rev-list","--first-parent","--min-parents=2","--max-parents=2","-1","HEAD").decode().strip()
+          fork_parent=git("rev-parse",merge_ref+"^1").decode().strip()
           expected_tree=git("rev-parse","HEAD^{tree}").decode().strip()
           paths=[p.decode() for p in git("diff","--no-renames","--name-only","-z",base,"HEAD").split(b"\x00") if p]
           print("Files differing from upstream:",len(paths))

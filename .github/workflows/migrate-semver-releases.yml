@@ -51,13 +51,13 @@ jobs:
 
           - **Upstream version:** 18.13.2
           - **Fork revision:** 1
-          - **Verified source commit:** `$source_sha`
+          - **Verified source commit:** $source_sha
           - **Fix:** configurable status-line usage refresh ([#14801](https://github.com/can1357/oh-my-pi/issues/14801))
-          - **Fork-only writable settings:** `~/.omp-mp/config.yml`; shares official credentials and sessions.
+          - **Fork-only writable settings:** ~/.omp-mp/config.yml; shares official credentials and sessions.
           - **Binaries:** Linux x64, macOS ARM64 and Windows x64, plus SHA256SUMS.txt.
           - **Original successful multi-platform build:** https://github.com/miaopan607/oh-my-pi/actions/runs/40688735575
 
-          This is the same verified executable build formerly published under a commit-hash tag, now assigned a SemVer-friendly fork revision. Future fork fixes increment the `mp.N` suffix.
+          This is the same verified executable build formerly published under a commit-hash tag, now assigned a SemVer-friendly fork revision. Future fork fixes increment the mp.N suffix.
           EOF
             if ! gh release view "$new_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               gh release create "$new_tag" --draft --repo "$GITHUB_REPOSITORY" --target "$source_sha" --title "oh-my-pi v18.13.2-mp.1" --notes-file "$RUNNER_TEMP/semantic-release-notes.md"
@@ -66,7 +66,7 @@ jobs:
           fi
 
           # Always verify the replacement before any irreversible cleanup.
-          new_target="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$new_tag" --jq '.target_commitish')"
+          new_target="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == "v18.13.2-mp.1") | .target_commitish')"
           [ "$new_target" = "$source_sha" ] || { echo "::error::Replacement release points at unexpected commit: $new_target"; exit 1; }
           for file in omp-linux-x64 omp-darwin-arm64 omp-windows-x64.exe SHA256SUMS.txt; do
             gh release view "$new_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$file" ||

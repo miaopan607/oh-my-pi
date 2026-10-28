@@ -1,0 +1,95 @@
+name: Verify fork one-click installers
+
+on:
+  pull_request:
+    paths:
+      - "scripts/fork/**"
+      - "docs/fork-install.md"
+      - ".github/workflows/fork-install-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/fork/**"
+      - ".github/workflows/fork-install-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse and simulate Unix install, update, overlay and command isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n scripts/fork/install.sh
+          export HOME="$RUNNER_TEMP/mock-home"
+          export TEST_ASSETS="$RUNNER_TEMP/test-assets"
+          mkdir -p "$HOME/.omp/agent" "$HOME/.local/bin" "$TEST_ASSETS" "$RUNNER_TEMP/mockbin"
+          echo 'theme: { dark: official }' > "$HOME/.omp/agent/config.yml"
+          echo official-binary > "$HOME/.local/bin/omp"
+          cat > "$TEST_ASSETS/omp-linux-x64" <<'EOF'
+          #!/bin/sh
+          if [ "$1" = "--version" ]; then echo 99.1.0; exit 0; fi
+          printf '%s' "$PI_CONFIG_FILES" > "$TEST_ASSETS/actual-overlay"
+          EOF
+          chmod +x "$TEST_ASSETS/omp-linux-x64"
+          (cd "$TEST_ASSETS" && sha256sum omp-linux-x64 > SHA256SUMS.txt)
+          cat > "$RUNNER_TEMP/mockbin/curl" <<'EOF'
+          #!/bin/sh
+          out=""
+          url=""
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              -o|-H|--retry|--connect-timeout) case "$1" in -o) out="$2";; esac; shift 2 ;;
+              -*) shift ;;
+              *) url="$1"; shift ;;
+            esac
+          done
+          case "$url" in
+            */scripts/fork/install.sh) cp "$GITHUB_WORKSPACE/scripts/fork/install.sh" "$out" ;;
+            */releases/latest) printf '{"tag_name":"fork-v99.1.0-fake"}\n' ;;
+            */SHA256SUMS.txt) cp "$TEST_ASSETS/SHA256SUMS.txt" "$out" ;;
+            */omp-linux-x64) cp "$TEST_ASSETS/omp-linux-x64" "$out" ;;
+            *) echo "unexpected curl request: $url" >&2; exit 1 ;;
+          esac
+          EOF
+          chmod +x "$RUNNER_TEMP/mockbin/curl"
+          export PATH="$RUNNER_TEMP/mockbin:$PATH"
+          sh scripts/fork/install.sh
+          test -x "$HOME/.local/bin/omp-mp"
+          test "$(cat "$HOME/.local/bin/omp")" = "official-binary"
+          test -f "$HOME/.omp-mp/config.yml"
+          echo 'statusLine: { usageRefreshInterval: 60 }' > "$HOME/.omp-mp/config.yml"
+          export PI_CONFIG_FILES="$HOME/.omp/agent/config.yml"
+          "$HOME/.local/bin/omp-mp" probe
+          test "$(cat "$TEST_ASSETS/actual-overlay")" = "$HOME/.omp/agent/config.yml:$HOME/.omp-mp/config.yml"
+          test "$("$HOME/.local/bin/omp-mp" --fork-config)" = "$HOME/.omp-mp/config.yml"
+          "$HOME/.local/bin/omp-mp" --fork-update
+          grep -q 'usageRefreshInterval: 60' "$HOME/.omp-mp/config.yml"
+          test "$(cat "$HOME/.local/share/omp-mp/release-tag")" = "fork-v99.1.0-fake"
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows PowerShell installer
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/fork/install.ps1').Path,
+            [ref] $tokens, [ref] $errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell install script failed syntax validation"
+          }
+          $scriptText = Get-Content 'scripts/fork/install.ps1' -Raw
+          if (-not $scriptText.Contains('omp-mp.cmd')) { throw "Dedicated launcher missing" }
+          if (-not $scriptText.Contains('Get-FileHash')) { throw "SHA verification missing" }
+          if (-not $scriptText.Contains('PI_CONFIG_FILES')) { throw "Configuration overlay missing" }

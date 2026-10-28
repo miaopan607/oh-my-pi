@@ -32,6 +32,26 @@ The most capable agent surface that ships. Continuously tuned by real-world use 
 > while we evaluate how open contributions go. Depending on the results, the
 > vouch system may return.
 
+## Personal fork installation: `omp-mp` (separate from official `omp`)
+
+This fork includes #14801, installs without replacing the official command, and shares the official profile settings, credentials and sessions. Only fork-specific YAML overrides live in `~/.omp-mp/config.yml`.
+
+**macOS Apple Silicon / Linux x64**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/miaopan607/oh-my-pi/main/scripts/fork/install.sh | sh
+```
+
+**Windows x64 (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/miaopan607/oh-my-pi/main/scripts/fork/install.ps1 | iex
+```
+
+Run `omp-mp` to launch, `omp-mp --fork-update` to upgrade, and `omp-mp --fork-auto-update` to enable daily update checks. See [fork-specific install and configuration](docs/fork-install.md) for PATH instructions, overlay precedence and limitations.
+
+**Official upstream installation methods follow below**. They install `omp` from upstream, not this fork.
+
 ## Install
 
 **macOS · Linux**

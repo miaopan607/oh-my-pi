@@ -135,7 +135,7 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # Upgrade an earlier source-only release once all three binaries pass.
             gh release upload "$tag" release-assets/omp-linux-x64 release-assets/omp-darwin-arm64 release-assets/omp-windows-x64.exe release-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
+            gh release edit "$tag" --prerelease=false --latest --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
           else
-            gh release create "$tag" release-assets/omp-linux-x64 release-assets/omp-darwin-arm64 release-assets/omp-windows-x64.exe release-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "oh-my-pi fork ${version} (${tag})" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
+            gh release create "$tag" --latest release-assets/omp-linux-x64 release-assets/omp-darwin-arm64 release-assets/omp-windows-x64.exe release-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "oh-my-pi fork ${version} (${tag})" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
           fi

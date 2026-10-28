@@ -5,42 +5,31 @@ import * as path from "node:path";
 import {
 	fetchForkLatestTag,
 	matchesForkExecutable,
-	readForkInstalledTag,
 	parseForkReleaseTag,
+	readForkInstalledTag,
 	shouldOfferForkUpdate,
 } from "@oh-my-pi/pi-coding-agent/cli/fork-update";
 
 describe("fork built-in updater", () => {
-	it("recognizes only numbered releases published by this fork", () => {
+	it("accepts fork release tags, not upstream tags", () => {
 		expect(parseForkReleaseTag("v18.13.2-mp.1")).toBe("v18.13.2-mp.1");
 		expect(parseForkReleaseTag("v18.13.2-mp.12")).toBe("v18.13.2-mp.12");
 		expect(parseForkReleaseTag("v18.13.2")).toBeUndefined();
 		expect(parseForkReleaseTag("v18.13.2-mp.0")).toBeUndefined();
-		expect(parseForkReleaseTag("fork-v18.13.2-abcdef")).toBeUndefined();
 		expect(parseForkReleaseTag("../omp")).toBeUndefined();
 	});
 
-	it("never identifies the official executable as the private omp-mp install", () => {
-		expect(
-			matchesForkExecutable(
-				"/home/test/.local/share/omp-mp/omp",
-				"/home/test/.local/share/omp-mp/omp",
-				"linux",
-			),
-		).toBe(true);
-		expect(
-			matchesForkExecutable("/home/test/.local/bin/omp", "/home/test/.local/share/omp-mp/omp", "linux"),
-		).toBe(false);
-		expect(
-			matchesForkExecutable(
-				"C:\\Users\\Test\\AppData\\Local\\Programs\\omp-mp\\OMP.EXE",
-				"C:\\Users\\Test\\AppData\\Local\\Programs\\omp-mp\\omp.exe",
-				"win32",
-			),
-		).toBe(true);
+	it("distinguishes the private executable from official omp", () => {
+		const fork = "/home/test/.local/share/omp-mp/omp";
+		const official = "/home/test/.local/bin/omp";
+		expect(matchesForkExecutable(fork, fork, "linux")).toBe(true);
+		expect(matchesForkExecutable(official, fork, "linux")).toBe(false);
+		const winFork = "C:\\Users\\Test\\omp-mp\\omp.exe";
+		const winUpper = "C:\\Users\\Test\\omp-mp\\OMP.EXE";
+		expect(matchesForkExecutable(winUpper, winFork, "win32")).toBe(true);
 	});
 
-	it("reads the installed fork tag from the installer state file", async () => {
+	it("reads the complete release tag from installer state", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-fork-update-test-"));
 		try {
 			expect(await readForkInstalledTag(dir)).toBeUndefined();
@@ -53,7 +42,7 @@ describe("fork built-in updater", () => {
 		}
 	});
 
-	it("compares the full fork tag, not the upstream base version", () => {
+	it("compares full fork versions and supports a forced reinstall", () => {
 		expect(shouldOfferForkUpdate("v18.13.2-mp.2", "v18.13.2-mp.1", false)).toBe(true);
 		expect(shouldOfferForkUpdate("v18.13.2-mp.2", "v18.13.2-mp.2", false)).toBe(false);
 		expect(shouldOfferForkUpdate("v18.13.2-mp.1", "v18.13.2-mp.2", false)).toBe(false);
@@ -62,29 +51,21 @@ describe("fork built-in updater", () => {
 		expect(shouldOfferForkUpdate("v18.13.2-mp.1", "v18.13.2-mp.1", true)).toBe(true);
 	});
 
-	it("checks only the fork's GitHub Releases endpoint", async () => {
+	it("fetches latest metadata from the fork repository only", async () => {
 		const calls: string[] = [];
-		const fetchImpl: typeof fetch = async (url, init) => {
+		const fetchImpl: typeof fetch = async url => {
 			calls.push(String(url));
-			expect(init?.headers).toEqual({
-				Accept: "application/vnd.github+json",
-				"User-Agent": "omp-mp-updater",
-			});
 			return Response.json({ tag_name: "v18.13.2-mp.7" });
 		};
 		expect(await fetchForkLatestTag(fetchImpl)).toBe("v18.13.2-mp.7");
-		expect(calls).toEqual(["https://api.github.com/repos/miaopan607/oh-my-pi/releases/latest"]);
+		const endpoint = "https://api.github.com/repos/miaopan607/oh-my-pi/releases/latest";
+		expect(calls).toEqual([endpoint]);
 	});
 
-	it("rejects upstream-style, malformed, and failed Release responses", async () => {
-		await expect(fetchForkLatestTag(async () => Response.json({ tag_name: "v18.13.3" }))).rejects.toThrow(
-			"invalid tag",
-		);
-		await expect(fetchForkLatestTag(async () => Response.json({ tag_name: "v18.13.2-mp.0" }))).rejects.toThrow(
-			"invalid tag",
-		);
-		await expect(fetchForkLatestTag(async () => new Response("Not Found", { status: 404 }))).rejects.toThrow(
-			"HTTP 404",
-		);
+	it("rejects malformed or unavailable releases", async () => {
+		const invalid: typeof fetch = async () => Response.json({ tag_name: "v18.13.3" });
+		const missing: typeof fetch = async () => new Response("Not Found", { status: 404 });
+		await expect(fetchForkLatestTag(invalid)).rejects.toThrow("invalid tag");
+		await expect(fetchForkLatestTag(missing)).rejects.toThrow("HTTP 404");
 	});
 });

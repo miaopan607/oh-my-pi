@@ -14693,7 +14693,7 @@ export class AgentSession implements SettingsScope {
 						heartbeat || !reports || candidates.actions.length > 0
 							? this.#planClaudeResets(
 									"sweep",
-									reports,
+									heartbeat ? null : reports,
 									await this.listResetCredits(AbortSignal.timeout(10_000), "anthropic"),
 									coordinator,
 								)

@@ -115,7 +115,11 @@ terminal. To force a verified reinstall on Windows, use
 `omp-mp --fork-update --force`.
 
 The fork publishes stable Releases only. It does not download the official
-`omp` canary channel; `omp-mp update --canary` is rejected. The official
+`omp` canary channel; `omp-mp update --canary` is rejected. Startup update
+notifications also use this fork's Release tags and show `omp-mp update`.
+A fork executable manually copied outside the private `omp-mp` installation
+does not have its required release metadata; its built-in updater refuses to
+switch to upstream and directs you to the fork installer instead. The official
 `omp update` command is unaffected and still updates the upstream installation.
 
 Check once daily in the operating system's scheduler:

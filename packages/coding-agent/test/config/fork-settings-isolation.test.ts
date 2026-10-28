@@ -141,6 +141,43 @@ describe("omp-mp isolated writable settings", () => {
 		expect(fs.existsSync(forkPath)).toBe(false);
 	});
 
+	it("config set/reset subprocesses update only the fork file and show its directory", async () => {
+		await writeYaml(officialPath, { temperature: 0.2 });
+		await writeYaml(forkPath, {});
+		const original = await Bun.file(officialPath).text();
+		const cliPath = path.join(import.meta.dir, "..", "..", "src", "cli.ts");
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			NO_COLOR: "1",
+			OMP_PROFILE: "",
+			PI_PROFILE: "",
+			PI_CODING_AGENT_DIR: agentDir,
+			OMP_MP_CONFIG_FILE: forkPath,
+		};
+		async function cli(...args: string[]): Promise<string> {
+			const proc = Bun.spawn([process.execPath, cliPath, "config", ...args], {
+				cwd: projectDir,
+				env,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const stdout = new Response(proc.stdout).text();
+			const stderr = new Response(proc.stderr).text();
+			const [code, output, error] = await Promise.all([proc.exited, stdout, stderr]);
+			expect(code, error).toBe(0);
+			return output.trim();
+		}
+
+		expect(await cli("path")).toBe(path.dirname(forkPath));
+		await cli("set", "temperature", "0.7");
+		expect(await readYaml(forkPath)).toEqual({ temperature: 0.7 });
+		expect(await Bun.file(officialPath).text()).toBe(original);
+
+		await cli("reset", "temperature");
+		expect(await readYaml(forkPath)).toEqual({});
+		expect(await Bun.file(officialPath).text()).toBe(original);
+	});
+
 	it("non-fork settings retain their existing project-over-global precedence", async () => {
 		delete process.env.OMP_MP_CONFIG_FILE;
 		await writeYaml(officialPath, { temperature: 0.1 });

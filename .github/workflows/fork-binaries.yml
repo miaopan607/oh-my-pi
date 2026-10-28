@@ -3,12 +3,18 @@ name: Build and publish fork binaries
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "scripts/fork/**"
+      - ".github/workflows/fork-install-check.yml"
+      - ".github/workflows/fork-settings-check.yml"
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: fork-binaries-${{ github.ref }}
@@ -34,6 +40,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.target }}
+    if: github.event_name != 'pull_request'
     needs: [validate]
     strategy:
       fail-fast: false
@@ -87,7 +94,9 @@ jobs:
 
   publish:
     name: Publish verified three-platform release
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      contents: write
     needs: [validate, build]
     runs-on: ubuntu-22.04
     timeout-minutes: 25
@@ -108,7 +117,7 @@ jobs:
           done
           sha256sum omp-linux-x64 omp-darwin-arm64 omp-windows-x64.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - name: Publish all assets atomically after validation
+      - name: Publish validated SemVer release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,22 +129,30 @@ jobs:
             exit 0
           fi
           version="$(node -p "require('./packages/coding-agent/package.json').version")"
-          tag="fork-v${version}-$(git rev-parse --short=12 HEAD)"
+          # Query all pages, including existing prerelease/draft items.
+          # Assign a stable semantic version only after all platform jobs pass.
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/fork-releases.json"
+          tag="$(node scripts/fork/release-version.mjs "$version" "$GITHUB_SHA" "$RUNNER_TEMP/fork-releases.json")"
+          echo "Publishing $tag from $GITHUB_SHA"
           cat > "$RUNNER_TEMP/binary-release-notes.md" <<EOF
-          Verified multi-platform fork build of oh-my-pi ${version} from commit ${GITHUB_SHA}.
+          # oh-my-pi ${version} — personal fork
 
-          Built and smoke-tested on native GitHub-hosted runners:
+          **Release:** ${tag} | **Source commit:** ${GITHUB_SHA}
+
+          Built and smoke-tested on GitHub-hosted runners:
           - Linux x64: \`omp-linux-x64\`
-          - macOS arm64: \`omp-darwin-arm64\`
+          - macOS ARM64: \`omp-darwin-arm64\`
           - Windows x64: \`omp-windows-x64.exe\`
 
-          Includes the status-line usage refresh interval fix for https://github.com/can1357/oh-my-pi/issues/14801.
-          SHA256SUMS.txt contains artifact checksums. This is a community fork release, not an official upstream build.
+          Includes the status-line usage refresh fix for https://github.com/can1357/oh-my-pi/issues/14801.
+          The independent \`omp-mp\` installer checks SHA-256 and uses fork-owned writable settings.
+          This is a community fork release, not an upstream build. Source ZIP/TAR.GZ provided by GitHub.
           EOF
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            # Upgrade an earlier source-only release once all three binaries pass.
-            gh release upload "$tag" release-assets/omp-linux-x64 release-assets/omp-darwin-arm64 release-assets/omp-windows-x64.exe release-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$tag" --prerelease=false --latest --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
-          else
-            gh release create "$tag" --latest release-assets/omp-linux-x64 release-assets/omp-darwin-arm64 release-assets/omp-windows-x64.exe release-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "oh-my-pi fork ${version} (${tag})" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Keep the release invisible until all four uploaded assets exist.
+            gh release create "$tag" --draft --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "oh-my-pi ${tag}" --notes-file "$RUNNER_TEMP/binary-release-notes.md"
           fi
+          gh release upload "$tag" release-assets/omp-linux-x64 release-assets/omp-darwin-arm64 release-assets/omp-windows-x64.exe release-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          count="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')"
+          [ "$count" -ge 4 ] || { echo "::error::Not all binaries and checksums were uploaded"; exit 1; }
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest --title "oh-my-pi ${tag}" --notes-file "$RUNNER_TEMP/binary-release-notes.md"

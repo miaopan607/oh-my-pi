@@ -21,6 +21,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - name: Verify semantic release tag selection and rerun idempotence
+        shell: bash
+        run: node --test scripts/fork/release-version.test.mjs
       - name: Parse and simulate Unix install, update, overlay and command isolation
         shell: bash
         run: |
@@ -53,7 +56,7 @@ jobs:
           done
           case "$url" in
             */scripts/fork/install.sh) cp "$GITHUB_WORKSPACE/scripts/fork/install.sh" "$out" ;;
-            */releases/latest) printf '{"tag_name":"fork-v99.1.0-fake"}\n' ;;
+            */releases/latest) printf '{"tag_name":"v99.1.0-mp.1"}\n' ;;
             */SHA256SUMS.txt) cp "$TEST_ASSETS/SHA256SUMS.txt" "$out" ;;
             */omp-linux-x64) cp "$TEST_ASSETS/omp-linux-x64" "$out" ;;
             *) echo "unexpected curl request: $url" >&2; exit 1 ;;
@@ -73,7 +76,7 @@ jobs:
           test "$("$HOME/.local/bin/omp-mp" --fork-config)" = "$HOME/.omp-mp/config.yml"
           "$HOME/.local/bin/omp-mp" --fork-update
           grep -q 'usageRefreshInterval: 60' "$HOME/.omp-mp/config.yml"
-          test "$(cat "$HOME/.local/share/omp-mp/release-tag")" = "fork-v99.1.0-fake"
+          test "$(cat "$HOME/.local/share/omp-mp/release-tag")" = "v99.1.0-mp.1"
 
   windows:
     runs-on: windows-2022

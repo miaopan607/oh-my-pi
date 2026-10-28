@@ -111,11 +111,18 @@ opt-in and may not run when the computer is asleep/offline. In that case just
 invoke `omp-mp --fork-update`.
 
 A new Release is eligible for installation **only after all three binary
-builds succeed**. The source-release job marks source-only builds as GitHub
-prereleases; the binary job promotes the Release to stable after uploading
-Linux, macOS, Windows and `SHA256SUMS.txt`. The installer reads GitHub's
-`/releases/latest` stable endpoint and checks the file digest before replacing
-an existing binary. If an update fails it keeps the previous executable.
+builds succeed**. The binary job publishes one complete stable Release,
+numbered `v<upstream version>-mp.<revision>` (for example
+`v18.13.2-mp.1`, then `v18.13.2-mp.2`). It uploads Linux, macOS, Windows
+and `SHA256SUMS.txt` before publishing. Source-only GitHub Releases are not
+created for each code commit. The installer reads GitHub's `/releases/latest`
+stable endpoint and verifies the file digest before replacing an existing binary.
+If an update fails, it keeps the previous executable.
+
+**Release page migration:** old `fork-v*-` hash-tagged Releases were removed
+from the public Release list after their full binary files were carried forward
+to the semantic-tagged Release. Git tags were retained for commit history, but
+old direct asset URLs no longer work. Use `/releases/latest` for stable links.
 
 If the local updater cannot replace a file (e.g. Windows is running an
 `omp-mp` process), close it and retry.

@@ -39,7 +39,7 @@ try {
 
 $release = Invoke-RestMethod -Uri $ApiUrl -Headers @{ Accept = "application/vnd.github+json"; "User-Agent" = "omp-mp-installer" }
 $tag = [string] $release.tag_name
-if ($tag -notmatch '^fork-v[a-zA-Z0-9._-]+$') {
+if ($tag -notmatch '^v\d+\.\d+\.\d+-mp\.[1-9]\d*$') {
     throw "Invalid fork release tag: $tag"
 }
 $VersionFile = Join-Path $InstallDir "release-tag"

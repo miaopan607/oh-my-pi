@@ -5,6 +5,7 @@
  * The settings registry (`config/registry.ts`) is the source of truth for available settings.
  */
 
+import * as path from "node:path";
 import { APP_NAME, getAgentDir, isRecord } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { orderedSettings } from "../config/all-settings";
@@ -395,7 +396,8 @@ async function handleReset(key: string | undefined, flags: { json?: boolean }): 
 }
 
 function handlePath(): void {
-	console.log(getAgentDir());
+	const forkFile = process.env.OMP_MP_CONFIG_FILE?.trim();
+	console.log(forkFile ? path.dirname(path.resolve(forkFile)) : getAgentDir());
 }
 
 // =============================================================================

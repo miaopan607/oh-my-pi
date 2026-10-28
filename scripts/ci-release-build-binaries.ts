@@ -111,7 +111,11 @@ function shouldAdhocSignDarwinBinary(target: BinaryTarget): boolean {
 }
 
 async function runCommand(command: string[], cwd: string): Promise<void> {
-	const proc = Bun.spawn(command, {
+	// Bun's Windows child-process environment may not resolve the current
+	// executable by the literal name "bun" (Git Bash runner PATH differs).
+	// Reuse the actual Bun executable that is running this script.
+	const executable = command[0] === "bun" ? process.execPath : command[0];
+	const proc = Bun.spawn([executable, ...command.slice(1)], {
 		cwd,
 		stdout: "inherit",
 		stderr: "inherit",

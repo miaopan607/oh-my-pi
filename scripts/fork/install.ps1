@@ -101,12 +101,9 @@ if not exist "%FORK_CONFIG%" (
     if not exist "%USERPROFILE%\.omp-mp" mkdir "%USERPROFILE%\.omp-mp"
     echo {}>"%FORK_CONFIG%"
 )
-rem Add fork overrides last, while keeping the official ~/.omp agent profile.
-if defined PI_CONFIG_FILES (
-    set "PI_CONFIG_FILES=%PI_CONFIG_FILES%;%FORK_CONFIG%"
-) else (
-    set "PI_CONFIG_FILES=%FORK_CONFIG%"
-)
+rem Fork-owned writable settings; keep upstream agent profile/auth/sessions.
+rem Do not change official config or unrelated PI_CONFIG_FILES overlays.
+set "OMP_MP_CONFIG_FILE=%FORK_CONFIG%"
 "%~dp0omp.exe" %*
 exit /b %errorlevel%
 :UPDATE

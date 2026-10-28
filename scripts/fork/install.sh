@@ -61,7 +61,8 @@ esac
 RELEASE_JSON="$(curl -fLsS --retry 3 --connect-timeout 20 -H 'Accept: application/vnd.github+json' "$API")" \
   || fail "Cannot query the latest GitHub release"
 TAG="$(printf '%s\n' "$RELEASE_JSON" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-mp\.[1-9][0-9]*
+printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-mp\.[1-9][0-9]*$' ||
+  fail "Unexpected release tag (expected vX.Y.Z-mp.N): $TAG"
 
 TARGET="$APP_DIR/omp"
 TAG_FILE="$APP_DIR/release-tag"

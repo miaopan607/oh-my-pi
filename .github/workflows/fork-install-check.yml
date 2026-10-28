@@ -21,6 +21,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - name: Verify semantic release tag selection and rerun idempotence
+        shell: bash
+        run: node --test scripts/fork/release-version.test.mjs
       - name: Parse and simulate Unix install, update, overlay and command isolation
         shell: bash
         run: |

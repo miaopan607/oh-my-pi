@@ -2,7 +2,7 @@ name: Resolve October upstream conflict
 
 on:
   push:
-    branches: [ci/binary-pipeline]
+    branches: [ci/upstream-resolver]
     paths:
       - ".github/workflows/fork-merge-resolve.yml"
   workflow_dispatch:
@@ -14,10 +14,11 @@ jobs:
   resolve:
     if: github.repository == 'miaopan607/oh-my-pi'
     runs-on: ubuntu-22.04
-    timeout-minutes: 70
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
       - name: Merge and resolve the four reviewed conflicts
         shell: bash
@@ -128,8 +129,74 @@ jobs:
           fi
       - name: Validate all TypeScript
         run: bun run check:ts
-      - name: Push type-checked merge into review branch
-        run: git push origin HEAD:refs/heads/merge/upstream-18.13.2
+      - name: Build native dependencies for regression testing
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake pkg-config clang libclang-dev libasound2-dev nasm
+          rustup show active-toolchain
+          OMP_NATIVE_CARGO_PROFILE=ci bun scripts/bazel-natives.ts host --dest packages/natives/native
       - name: Run 14801 regression tests
         run: |
           bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/coding-agent/test/codex-auto-reset.test.ts packages/coding-agent/test/claude-auto-reset-integration.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts
+      - name: Materialize verified merge commit using GitHub Git objects API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, subprocess, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+          def git(*args):
+              return subprocess.check_output(["git", *args])
+          def create(endpoint, payload):
+              url=f"https://api.github.com/repos/{repo}/git/{endpoint}"
+              data=json.dumps(payload).encode()
+              req=urllib.request.Request(url,data=data,method="POST",headers={
+                  "Authorization":f"Bearer {token}",
+                  "Accept":"application/vnd.github+json",
+                  "User-Agent":"fork-upstream-merge",
+                  "X-GitHub-Api-Version":"2022-11-28",
+                  "Content-Type":"application/json"
+              })
+              with urllib.request.urlopen(req,timeout=90) as response:
+                  return json.load(response)
+          base=git("rev-parse","FETCH_HEAD").decode().strip()
+          upstream_tree=git("rev-parse","FETCH_HEAD^{tree}").decode().strip()
+          fork_parent=git("rev-parse","HEAD^1").decode().strip()
+          expected_tree=git("rev-parse","HEAD^{tree}").decode().strip()
+          paths=[p.decode() for p in git("diff","--no-renames","--name-only","-z",base,"HEAD").split(b"\x00") if p]
+          print("Files differing from upstream:",len(paths))
+          if len(paths)>150:
+              raise SystemExit("Unexpectedly broad fork diff; refusing Git object creation.")
+          elements=[]
+          for path in paths:
+              entry=git("ls-tree","-z","HEAD","--",path).split(b"\x00")[0]
+              if not entry:
+                  elements.append({"path":path,"mode":"100644","type":"blob","sha":None})
+                  continue
+              meta=entry.split(b"\t",1)[0].decode().split()
+              mode,kind,expected_blob=meta
+              if kind=="blob":
+                  data=git("show",f"HEAD:{path}")
+                  if len(data)>2500000: raise SystemExit(f"Oversize fork overlay: {path}")
+                  response=create("blobs",{"content":base64.b64encode(data).decode(),"encoding":"base64"})
+                  if response["sha"]!=expected_blob:
+                      raise SystemExit(f"Git blob mismatch for {path}")
+                  blob_sha=response["sha"]
+              else:
+                  blob_sha=expected_blob
+              elements.append({"path":path,"mode":mode,"type":kind,"sha":blob_sha})
+          tree=create("trees",{"base_tree":upstream_tree,"tree":elements})["sha"]
+          print("Expected tree:",expected_tree,"API tree:",tree)
+          if tree!=expected_tree: raise SystemExit("Git tree mismatch; no commit created.")
+          obj=create("commits",{
+              "message":"merge: upstream main with verified #14801 refresh fix",
+              "tree":tree,
+              "parents":[fork_parent,base],
+          })
+          print("VERIFIED_MERGE_COMMIT_SHA="+obj["sha"])
+          print("EXPECTED_PARENT_MAIN_SHA="+fork_parent)
+          print("UPSTREAM_MERGE_PARENT_SHA="+base)
+          PY

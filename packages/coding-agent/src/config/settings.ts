@@ -896,6 +896,7 @@ export class Settings {
 		const segments = setting.segments;
 		if (getByPath(this.#overrides, segments) !== undefined) return "runtime";
 		if (getByPath(this.#configOverlay, segments) !== undefined) return "overlay";
+		if (this.#forkConfigPath && getByPath(this.#global, segments) !== undefined) return "global";
 		if (getByPath(projectLayerForMerge(this.#project), segments) !== undefined) return "project";
 		if (getByPath(this.#global, segments) !== undefined) return "global";
 		if (getByPath(this.#officialGlobal, segments) !== undefined) return "global";
@@ -1631,6 +1632,9 @@ export class Settings {
 		if (Object.hasOwn(this.#configOverlay, "shellPath")) {
 			return this.#overlayShellPathSource ?? "the active config overlay";
 		}
+		if (this.#forkConfigPath && Object.hasOwn(this.#global, "shellPath")) {
+			return this.#configPath ?? "fork global configuration";
+		}
 		if (Object.hasOwn(this.#project, "shellPath")) {
 			return this.#projectShellPathSource ?? "the active project configuration";
 		}
@@ -1843,7 +1847,7 @@ export class Settings {
 	 * Get a model role from only the global settings layer (an {@link overlay}'s own, else its parent's).
 	 */
 	getGlobalModelRole(role: ModelRole | string): string | undefined {
-		const modelId = this.#modelRolesFromLayer(this.#global)[role];
+		const modelId = this.#modelRolesFromLayer(this.#global)[role] ?? this.#modelRolesFromLayer(this.#officialGlobal)[role];
 		return modelId || this.#parent?.getGlobalModelRole(role);
 	}
 
@@ -1869,8 +1873,10 @@ export class Settings {
 	getModelRoleProvenance(role: ModelRole | string): SettingProvenance {
 		if (this.#modelRoleLayerOwns(this.#overrides, role)) return "runtime";
 		if (this.#modelRoleLayerOwns(this.#configOverlay, role)) return "overlay";
+		if (this.#forkConfigPath && this.#modelRoleLayerOwns(this.#global, role)) return "global";
 		if (this.#modelRoleLayerOwns(projectLayerForMerge(this.#project), role)) return "project";
 		if (this.#modelRoleLayerOwns(this.#global, role)) return "global";
+		if (this.#modelRoleLayerOwns(this.#officialGlobal, role)) return "global";
 		return this.#parent?.getModelRoleProvenance(role) ?? "default";
 	}
 
@@ -1878,6 +1884,7 @@ export class Settings {
 	 * Get the persisted layer supplying a model role (project/global/default only).
 	 */
 	getModelRoleSource(role: ModelRole | string): "project" | "global" | "default" {
+		if (this.#forkConfigPath && this.#modelRoleLayerOwns(this.#global, role)) return "global";
 		if (this.getProjectModelRole(role)) return "project";
 		if (this.getGlobalModelRole(role)) return "global";
 		return "default";
@@ -1897,8 +1904,9 @@ export class Settings {
 		const layers = [
 			{ layer: this.#overrides, source: "runtime", tombstone: true },
 			{ layer: this.#configOverlay, source: "overlay", tombstone: true },
+			...(this.#forkConfigPath ? [{ layer: this.#global, source: "global" as const, tombstone: false }] : []),
 			{ layer: projectLayerForMerge(this.#project), source: "project", tombstone: false },
-			{ layer: this.#global, source: "global", tombstone: false },
+			{ layer: this.#forkConfigPath ? this.#officialGlobal : this.#global, source: "global", tombstone: false },
 		] as const;
 		for (const { layer, source, tombstone } of layers) {
 			const presets = getByPath(layer, ["modelPresets"]);

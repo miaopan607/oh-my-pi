@@ -116,14 +116,11 @@ if [ ! -e "$CONFIG_DIR/config.yml" ]; then
   mkdir -p "$CONFIG_DIR"
   (umask 077; printf '{}\n' > "$CONFIG_DIR/config.yml")
 fi
-# Last PI_CONFIG_FILES overlay wins; explicit --config CLI flags can still
-# override it. The official ~/.omp agent dir is deliberately unchanged.
-if [ -n "${PI_CONFIG_FILES:-}" ]; then
-  PI_CONFIG_FILES="$PI_CONFIG_FILES:$CONFIG_DIR/config.yml"
-else
-  PI_CONFIG_FILES="$CONFIG_DIR/config.yml"
-fi
-export PI_CONFIG_FILES
+# Fork-only writable layer. Upstream's official profile, auth and
+# sessions remain at ~/.omp; no official settings file is ever written.
+# Existing PI_CONFIG_FILES overlays and explicit --config still work.
+OMP_MP_CONFIG_FILE="$CONFIG_DIR/config.yml"
+export OMP_MP_CONFIG_FILE
 exec "$APP_DIR/omp" "$@"
 LAUNCHER_EOF
 chmod 755 "$LAUNCHER"

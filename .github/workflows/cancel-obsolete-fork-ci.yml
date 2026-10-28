@@ -1,0 +1,27 @@
+name: Retire obsolete fork CI builds
+
+on:
+  push:
+    branches:
+      - ci/cancel-obsolete-builds
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  retire:
+    if: github.repository == 'miaopan607/oh-my-pi'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Cancel superseded runs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # All runs here were created by the current fork maintenance work;
+          # their branch commits are superseded by main b980b9ac.
+          for id in 40688338744 40688620678 40687887012 40686852199 40684858868; do
+            gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true
+          done

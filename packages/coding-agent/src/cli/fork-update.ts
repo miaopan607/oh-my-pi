@@ -12,6 +12,7 @@ import { $ } from "bun";
 import { compareVersions, isCompiledBinary, isEnoent, isRecord } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { withTimeoutSignal } from "../utils/fetch-timeout";
+import type { Fetch } from "./build-service";
 
 const FORK_REPO = "miaopan607/oh-my-pi";
 const FORK_LATEST = `https://api.github.com/repos/${FORK_REPO}/releases/latest`;
@@ -56,7 +57,7 @@ export function getForkInstall(): ForkInstall | undefined {
 }
 
 /** Fetch only from this fork, never from the upstream build service or npm. */
-export async function fetchForkLatestTag(fetchImpl: typeof fetch = fetch, timeoutMs = 30_000): Promise<string> {
+export async function fetchForkLatestTag(fetchImpl: Fetch = fetch, timeoutMs = 30_000): Promise<string> {
 	const response = await fetchImpl(FORK_LATEST, {
 		headers: { Accept: "application/vnd.github+json", "User-Agent": "omp-mp-updater" },
 		signal: withTimeoutSignal(timeoutMs),

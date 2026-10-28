@@ -1,4 +1,5 @@
 name: Verify fork 18.13.2 merge regressions
+# Check fork patch d0cc7c following original upstream PR integration.
 
 on:
   push:

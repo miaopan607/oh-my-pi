@@ -1,6 +1,7 @@
 param(
     [switch] $Update,
-    [switch] $EnableAutoUpdate
+    [switch] $EnableAutoUpdate,
+    [switch] $Force
 )
 # Install only the fork's independent "omp-mp" command, never official "omp".
 $ErrorActionPreference = "Stop"
@@ -53,7 +54,7 @@ if ((Test-Path -LiteralPath $BinaryPath) -and (Test-Path -LiteralPath $VersionFi
     }
 }
 
-if ($upToDate) {
+if ($upToDate -and -not $Force) {
     Write-Host "omp-mp already up to date: $tag"
 } else {
     $checksums = @($release.assets | Where-Object { $_.name -eq "SHA256SUMS.txt" } | Select-Object -First 1)
@@ -121,7 +122,11 @@ set "OMP_MP_CONFIG_FILE=%FORK_CONFIG%"
 "%~dp0omp.exe" %*
 exit /b %errorlevel%
 :UPDATE
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Update
+if /I "%~2"=="--force" (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Update -Force
+) else (
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -Update
+)
 exit /b %errorlevel%
 :AUTOUPDATE
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1" -EnableAutoUpdate

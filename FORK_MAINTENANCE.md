@@ -5,18 +5,21 @@ This repository preserves the implementation of [upstream issue #14801](https://
 ## Features
 
 - **Configurable status-line usage refresh:** `statusLine.usageRefreshInterval`, 60–86400 seconds (default 300), affects the display and usage-report freshness without extending the auth recovery windows.
-- **Upstream sync:** `.github/workflows/fork-sync.yml` checks `can1357/oh-my-pi:main` daily and can be manually dispatched. It merges upstream (never force-pushes), checks that the fork feature is present, runs TypeScript checks, and only then updates `main`.
-- **Auto release:** `.github/workflows/fork-binaries.yml` tests and builds Linux x64, macOS arm64 and Windows x64 on native hosted runners; a stable GitHub Release is created **only after all three pass**. GitHub generates source ZIP/TAR.GZ for that release.
+- **Official stable-release sync:** [`.github/workflows/fork-sync.yml`](.github/workflows/fork-sync.yml) checks `can1357/oh-my-pi`'s **latest published stable GitHub Release** twice per hour (at :17 and :47 UTC) and on manual dispatch. It fetches the official release **tag**, never `upstream/main`. Drafts, prereleases, and non-stable version tags are rejected.
+- **Safety and verification:** The sync merges without force-pushing, checks the fork feature is still present, runs TypeScript validation and the fork's relevant regression tests, then pushes `main`. Conflicts or test failures leave `main` unchanged. Failures are visible in GitHub Actions and its run summary (Issues are disabled on this fork).
+- **Auto release:** [`.github/workflows/fork-binaries.yml`](.github/workflows/fork-binaries.yml) tests and builds Linux x64, macOS arm64 and Windows x64 on native hosted runners; a stable fork GitHub Release is created **only after all three pass**. GitHub generates source ZIP/TAR.GZ for that release.
 
 ## How to use
 
 1. In the fork's GitHub **Actions** tab, enable workflows if prompted.
-2. Run **Build and publish fork binaries** from Actions (or push a code change to main); the workflow creates one complete stable release after all binaries pass.
-3. Run **Sync upstream safely** to check for upstream updates immediately, or rely on its daily schedule.
-4. If a merge conflict or validation failure occurs, the sync leaves `main` unchanged and creates/updates an issue. Resolve the conflict in a regular branch and pull request instead of force-updating `main`.
-
-GitHub Actions must have permission to write repository contents. Repository Settings > Actions > General > Workflow permissions should allow **Read and write permissions** (subject to your account/org settings).
+2. Enable **Read and write permissions** under **Settings > Actions > General > Workflow permissions** where GitHub permits it.
+3. Recommended for unattended syncs that include upstream workflow-file changes: create an Actions secret named `FORK_SYNC_TOKEN`, containing a fine-grained PAT scoped only to this repository with **Contents: read/write** and **Workflows: read/write**. Without it, the built-in `GITHUB_TOKEN` is used; pushes that update `.github/workflows` may fail due to missing workflow-write permission. Do not commit the token to the repository.
+4. Run **Sync official stable releases** from Actions to check immediately, or let the schedule check every 30 minutes. GitHub scheduled runs can be delayed; this is polling rather than an instant upstream release webhook.
+5. After a successful merge, the workflow dispatches **Build and publish fork binaries**; installing or updating `omp-mp` pulls this fork's latest verified GitHub Release, not the upstream npm package.
+6. If a merge conflict or test failure occurs, inspect the failed Actions run and resolve the conflict in a branch/PR. Do not force-push over custom fork changes.
 
 ## Versions and compatibility
 
-Fork releases use SemVer tags such as `v18.13.2-mp.1` (upstream 18.13.2, personal fork revision 1), with sequential fork revisions `mp.2`, `mp.3`, etc. The commit hash is recorded in release notes, not the tag. A CI rerun for the same commit reuses its tag. Automatic merges may pause on conflicts; never force-push to bypass them. Releases include independently smoke-tested executables and GitHub's source archives; they do not publish to npm.
+Official releases have tags such as `v18.13.3`. The fork's published binaries use tags such as `v18.13.3-mp.1` (upstream 18.13.3, personal fork revision 1), with sequential fork revisions `mp.2`, `mp.3`, etc. The commit hash is recorded in release notes, not the tag. A CI rerun for the same commit reuses its tag. Releases include independently smoke-tested executables and GitHub's source archives; they do not publish to npm.
+
+**Existing history:** Changing the sync policy does not remove development commits already merged into the fork. Future automatic upstream merges are limited to the official stable release tag.

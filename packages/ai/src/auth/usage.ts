@@ -331,7 +331,8 @@ export class UsageService implements UsageApi {
 		const cached = this.#deps.cache.get<UsageReport | null>(cacheKey);
 		// Fresh cache hit: return whatever's there (success or null fallback).
 		if (
-			cached && cached.expiresAt > now &&
+			cached &&
+			cached.expiresAt > now &&
 			(options.maxAgeMs === undefined || !cached.value || now - cached.value.fetchedAt < options.maxAgeMs)
 		) {
 			return cached.value;

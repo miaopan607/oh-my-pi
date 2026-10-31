@@ -1370,9 +1370,17 @@ export class RemoteAuthCredentialStore implements AuthCredentialStore {
 	 * to the broker's `/v1/usage` endpoint. Shared per-credential caches and
 	 * cooldowns keep separate clients from multiplying provider probes.
 	 */
-	async fetchUsageReports(signal?: AbortSignal, provider?: Provider, maxAgeMs?: number): Promise<UsageReport[] | null> {
+	async fetchUsageReports(
+		signal?: AbortSignal,
+		provider?: Provider,
+		maxAgeMs?: number,
+	): Promise<UsageReport[] | null> {
 		this.#noteActivity();
-		const reports = await raceSignal(this.#loadUsageReports(provider, maxAgeMs), signal, "auth-broker request aborted");
+		const reports = await raceSignal(
+			this.#loadUsageReports(provider, maxAgeMs),
+			signal,
+			"auth-broker request aborted",
+		);
 		if (!reports) return null;
 		const visible = this.#filterUsageReports(this.#applyUsageOverlays(reports));
 		return provider === undefined ? visible : visible.filter(report => report.provider === provider);

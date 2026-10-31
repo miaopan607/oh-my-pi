@@ -106,9 +106,10 @@ export interface UsageServiceDeps {
 }
 
 type UsageReportsOptions = {
+	maxAgeMs?: number;
+	provider?: Provider;
 	baseUrlResolver?: (provider: Provider) => string | undefined;
 	signal?: AbortSignal;
-	maxAgeMs?: number;
 };
 
 /** Usage reports: per-credential cached fetches, aggregate reports, header ingestion, history. */
@@ -330,8 +331,7 @@ export class UsageService implements UsageApi {
 		const cached = this.#deps.cache.get<UsageReport | null>(cacheKey);
 		// Fresh cache hit: return whatever's there (success or null fallback).
 		if (
-			cached &&
-			cached.expiresAt > now &&
+			cached && cached.expiresAt > now &&
 			(options.maxAgeMs === undefined || !cached.value || now - cached.value.fetchedAt < options.maxAgeMs)
 		) {
 			return cached.value;
@@ -364,7 +364,6 @@ export class UsageService implements UsageApi {
 			if (report !== null) {
 				if (invalidated) return report;
 				this.#deps.blocks.reconcileRequest(request, report);
-				// Display polls may shorten freshness, but must never lengthen recovery caches.
 				const ttlMs = Math.min(USAGE_REPORT_TTL_MS, options.maxAgeMs ?? USAGE_REPORT_TTL_MS);
 				const ttlJitter = ttlMs * (Math.random() * 0.5 - 0.25);
 				// Success: stagger per-credential cache expiry so all accounts don't
@@ -782,17 +781,22 @@ export class UsageService implements UsageApi {
 			// dispatch + credential selection) coalesce into one upstream call.
 			// Each caller's `signal` only cancels THAT caller's await; the
 			// shared upstream fetch runs to completion so peers aren't punished.
-			const overrideKey = `__override__\0${this.#deps.cache.epoch}\0${options?.maxAgeMs ?? ""}`;
+			const scope = options?.provider === undefined ? "*" : `provider:${options.provider}`;
+			const overrideKey = `__override__\0${this.#deps.cache.epoch}\0${scope}\0${options?.maxAgeMs ?? ""}`;
 			let shared = this.#usageReportsInFlight.get(overrideKey);
 			if (!shared) {
 				// Don't forward the caller signal into the shared fetch — first caller's
 				// abort would otherwise cancel the upstream for every peer.
-				shared = storeOverride(undefined, options?.maxAgeMs).finally(() => {
+				shared = storeOverride(undefined, options?.provider, options?.maxAgeMs).finally(() => {
 					this.#usageReportsInFlight.delete(overrideKey);
 				});
 				this.#usageReportsInFlight.set(overrideKey, shared);
 			}
-			const reports = await raceSignal(shared, options?.signal, "usage fetch aborted");
+			const fetched = await raceSignal(shared, options?.signal, "usage fetch aborted");
+			const reports =
+				fetched && options?.provider !== undefined
+					? fetched.filter(report => report.provider === options.provider)
+					: fetched;
 			if (reports) this.#deps.blocks.reconcileReports(reports);
 			if (!reports || this.#runtimeUsageProviderOverrides.size === 0) return reports;
 
@@ -801,13 +805,17 @@ export class UsageService implements UsageApi {
 			const brokerProviders = new Set(reports.map(report => report.provider));
 			const localProviders = new Set<Provider>();
 			for (const provider of this.#runtimeUsageProviderOverrides.keys()) {
+				if (options?.provider !== undefined && provider !== options.provider) continue;
 				if (!brokerProviders.has(provider)) localProviders.add(provider);
 			}
 			if (localProviders.size === 0) return reports;
 			const localReports = await this.#fetchLocalReports(options, localProviders);
 			return localReports?.length ? [...reports, ...localReports] : reports;
 		}
-		return this.#fetchLocalReports(options);
+		return this.#fetchLocalReports(
+			options,
+			options?.provider !== undefined ? new Set([options.provider]) : undefined,
+		);
 	}
 
 	/** Probe only the selected providers locally, preserving per-credential caching and cooldowns. */

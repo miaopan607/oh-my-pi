@@ -94,6 +94,20 @@ jobs:
         if: steps.merge.outputs.changed == 'true'
         run: bun run check:ts
 
+      - name: Install Linux dependencies for native addon
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake pkg-config clang libclang-dev libasound2-dev nasm
+
+      - name: Build pi_natives before fork regression tests
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          OMP_NATIVE_CARGO_PROFILE: ci
+        run: bun scripts/bazel-natives.ts host --dest packages/natives/native
+
       - name: Test fork-specific behavior
         if: steps.merge.outputs.changed == 'true'
         run: |

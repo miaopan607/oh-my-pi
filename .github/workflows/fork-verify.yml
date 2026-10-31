@@ -36,6 +36,18 @@ jobs:
 
       - uses: ./.github/actions/bun-install
 
+      - name: Diagnose formatter changes in merged TypeScript sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx oxfmt \
+            packages/ai/src/auth-broker/remote-store.ts \
+            packages/ai/src/auth-broker/server.ts \
+            packages/ai/src/auth/usage.ts
+          git diff -- packages/ai/src/auth-broker/remote-store.ts packages/ai/src/auth-broker/server.ts packages/ai/src/auth/usage.ts
+          # Fail until formatting is committed to the PR, not just to this runner.
+          git diff --exit-code -- packages/ai/src/auth-broker/remote-store.ts packages/ai/src/auth-broker/server.ts packages/ai/src/auth/usage.ts
+
       - name: TypeScript format, lint and types
         run: bun run check:ts
 

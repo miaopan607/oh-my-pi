@@ -1,9 +1,7 @@
 name: Diagnose upstream merge
 
+# Diagnostic only; it fetches upstream and should not run for workflow edits.
 on:
-  push:
-    paths:
-      - ".github/workflows/fork-merge-diagnostics.yml"
   workflow_dispatch:
 
 permissions:

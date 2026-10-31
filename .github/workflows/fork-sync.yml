@@ -1,11 +1,9 @@
 name: Sync official stable releases
 
+# Keep automatic polling paused while the v18.14.1 conflict-resolution PR
+# is awaiting CI. Re-enable at a low daily cadence after it is verified.
 on:
   workflow_dispatch:
-  schedule:
-    # GitHub does not send another repository's release event to this fork.
-    # Poll twice an hour; the runner also supports manual checks.
-    - cron: "17,47 * * * *"
 
 permissions:
   contents: write

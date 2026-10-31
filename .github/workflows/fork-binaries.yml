@@ -1,16 +1,8 @@
 name: Build and publish fork binaries
 
+# Builds three OS targets only when manually requested or dispatched after
+# a verified official-release sync; a regular main push must not publish.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "scripts/fork/**"
-      - ".github/workflows/fork-install-check.yml"
-      - ".github/workflows/fork-settings-check.yml"
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

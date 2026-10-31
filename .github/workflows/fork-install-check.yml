@@ -6,11 +6,6 @@ on:
       - "scripts/fork/**"
       - "docs/fork-install.md"
       - ".github/workflows/fork-install-check.yml"
-  push:
-    branches: [main]
-    paths:
-      - "scripts/fork/**"
-      - ".github/workflows/fork-install-check.yml"
   workflow_dispatch:
 
 permissions:

@@ -1,12 +1,8 @@
 name: Verify isolated fork settings writes
 
+# Emergency/manual settings check. Fork PR verification covers these tests
+# using a locally built native addon instead of the pinned old npm binary.
 on:
-  pull_request:
-    paths:
-      - "packages/coding-agent/src/config/settings.ts"
-      - "packages/coding-agent/test/config/fork-settings-isolation.test.ts"
-      - "scripts/fork/**"
-      - ".github/workflows/fork-settings-check.yml"
   workflow_dispatch:
 
 permissions:

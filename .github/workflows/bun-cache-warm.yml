@@ -7,13 +7,8 @@ name: Warm bun store cache
 # cache), so this is the sole GitHub-hosted producer. Triggers only on pushes
 # that can change the entry.
 
+# The fork's lean verifier does not need a scheduled or push-driven cache warm.
 on:
-   push:
-      branches: [main]
-      paths:
-         - "bun.lock"
-         - ".github/actions/bun-install/**"
-         - ".github/workflows/bun-cache-warm.yml"
    workflow_dispatch:
 
 permissions:

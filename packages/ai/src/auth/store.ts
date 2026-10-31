@@ -205,7 +205,7 @@ export interface CredentialUpstream {
 	 *
 	 * `signal` propagates the agent's cancel down to the broker fetch.
 	 */
-	fetchUsageReports(signal?: AbortSignal, maxAgeMs?: number): Promise<UsageReport[] | null>;
+	fetchUsageReports(signal?: AbortSignal, provider?: Provider, maxAgeMs?: number): Promise<UsageReport[] | null>;
 	/**
 	 * Optional store-supplied per-credential usage report lookup. When present,
 	 * `AuthStorage` consults this before its own per-credential upstream fetch

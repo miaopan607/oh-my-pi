@@ -71,6 +71,12 @@ test("display freshness reaches the broker without extending shared recovery cac
 		await storage.usage.reports();
 		expect(probes).toBe(beforeRecoveryPoll + 1);
 
+		// A scoped poll must still pass its freshness requirement to the broker.
+		const scoped = await client.fetchUsage({ provider: provider.id, maxAgeMs: 60_000 });
+		expect(scoped.reports.map(report => report.provider)).toEqual([provider.id]);
+		const other = await client.fetchUsage({ provider: "unconfigured-provider", maxAgeMs: 60_000 });
+		expect(other.reports).toEqual([]);
+
 		const invalid = await fetch(`${broker.url}/v1/usage?maxAgeMs=1000`, {
 			headers: { Authorization: "Bearer test" },
 		});

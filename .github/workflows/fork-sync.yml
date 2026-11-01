@@ -1,8 +1,10 @@
 name: Sync official stable releases
 
-# Keep automatic polling paused while the v18.14.1 conflict-resolution PR
-# is awaiting CI. Re-enable at a low daily cadence after it is verified.
+# Check for official stable upstream releases every hour.
+# Manual runs remain available; concurrency prevents overlapping sync jobs.
 on:
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 permissions:

@@ -76,6 +76,30 @@ jobs:
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Check workflow-update permissions before expensive verification
+        if: steps.merge.outputs.changed == 'true'
+        shell: bash
+        env:
+          HAS_FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          # GitHub rejects a push containing workflow-file changes anywhere
+          # in the incoming commits, even if a later commit restores the files.
+          if git log --format= --name-only origin/main..HEAD -- .github/workflows/ | grep -q '[^[:space:]]'; then
+            if [[ "$HAS_FORK_SYNC_TOKEN" != "true" ]]; then
+              echo "::error::The official release updates GitHub Actions workflows. Configure FORK_SYNC_TOKEN with Contents and Workflows read/write access, then rerun."
+              {
+                echo "## Workflow-write credentials required"
+                echo "The incoming upstream commits modify .github/workflows."
+                echo "The default GITHUB_TOKEN cannot push these commits."
+                echo "Create a fine-grained PAT for this repository with Contents and Workflows read/write permissions,"
+                echo "save it as the Actions secret FORK_SYNC_TOKEN, then rerun this workflow."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "Upstream modifies workflow files; FORK_SYNC_TOKEN is configured."
+          fi
+
       - name: Verify preserved fork fixes
         if: steps.merge.outputs.changed == 'true'
         shell: bash

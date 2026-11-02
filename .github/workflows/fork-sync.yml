@@ -76,28 +76,39 @@ jobs:
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Check workflow-update permissions before expensive verification
+      - name: Prepare a push that respects workflow permissions
         if: steps.merge.outputs.changed == 'true'
         shell: bash
         env:
           HAS_FORK_SYNC_TOKEN: ${{ secrets.FORK_SYNC_TOKEN != '' }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          # GitHub rejects a push containing workflow-file changes anywhere
-          # in the incoming commits, even if a later commit restores the files.
-          if git log --format= --name-only origin/main..HEAD -- .github/workflows/ | grep -q '[^[:space:]]'; then
-            if [[ "$HAS_FORK_SYNC_TOKEN" != "true" ]]; then
-              echo "::error::The official release updates GitHub Actions workflows. Configure FORK_SYNC_TOKEN with Contents and Workflows read/write access, then rerun."
-              {
-                echo "## Workflow-write credentials required"
-                echo "The incoming upstream commits modify .github/workflows."
-                echo "The default GITHUB_TOKEN cannot push these commits."
-                echo "Create a fine-grained PAT for this repository with Contents and Workflows read/write permissions,"
-                echo "save it as the Actions secret FORK_SYNC_TOKEN, then rerun this workflow."
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 1
+          # The default GITHUB_TOKEN cannot push commits that modify Actions
+          # workflows. Resetting workflow files in a follow-up merge commit is
+          # insufficient: GitHub checks the incoming commit history as well.
+          if [[ "$HAS_FORK_SYNC_TOKEN" == "true" ]]; then
+            echo "Using FORK_SYNC_TOKEN; preserving upstream merge ancestry."
+            exit 0
+          fi
+          base="$(git rev-parse origin/main)"
+          if git log --format= --name-only "$base"..HEAD -- .github/workflows/ | grep -q '[^[:space:]]'; then
+            echo "Upstream history changes Actions workflows; preparing a workflow-free snapshot commit."
+            # Squash the verified merge into a single-parent commit so the
+            # restricted upstream workflow commits are not pushed.
+            git reset --soft "$base"
+            git restore --source="$base" --staged --worktree -- .github/workflows/
+            if git diff --cached --quiet; then
+              echo "No changes outside Actions workflows in $RELEASE_TAG."
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            else
+              git commit -m "chore(sync): import official stable $RELEASE_TAG (exclude workflows)"
             fi
-            echo "Upstream modifies workflow files; FORK_SYNC_TOKEN is configured."
+            {
+              echo "## Restricted workflow changes skipped"
+              echo "Imported non-workflow updates from $RELEASE_TAG without pushing restricted workflow history."
+              echo "Local .github/workflows files remain authoritative until a workflow-capable token is supplied."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Verify preserved fork fixes

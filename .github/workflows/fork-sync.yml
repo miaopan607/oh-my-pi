@@ -3,6 +3,11 @@ name: Sync official stable releases
 # Check for official stable upstream releases every hour.
 # Manual runs remain available; concurrency prevents overlapping sync jobs.
 on:
+  # Verify sync changes immediately, without rebuilding on ordinary pushes.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fork-sync.yml"
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:

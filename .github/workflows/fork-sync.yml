@@ -30,8 +30,8 @@ jobs:
           # upstream releases that change files under .github/workflows.
           token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
 
-      - name: Test official-release selection
-        run: node --test scripts/fork/select-upstream-release.test.mjs
+      - name: Test official-release selection and safe merge behavior
+        run: node --test scripts/fork/select-upstream-release.test.mjs scripts/fork/merge-official-stable.test.mjs
 
       - name: Find latest published official stable release
         id: release
@@ -54,34 +54,7 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # Workflow-free snapshots do not have upstream ancestry. Avoid
-          # replaying the same official release on every hourly run.
-          if git log --format=%s --fixed-strings --grep="chore(sync): import official stable $RELEASE_TAG (exclude workflows)" -1 | grep -Fxq "chore(sync): import official stable $RELEASE_TAG (exclude workflows)"; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Already imported $RELEASE_TAG as a workflow-free snapshot." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/can1357/oh-my-pi.git
-          # Fetch exactly the published tag, never the upstream main tip.
-          git fetch --no-tags upstream "refs/tags/$RELEASE_TAG"
-          release_sha="$(git rev-parse 'FETCH_HEAD^{commit}')"
-          echo "Official stable $RELEASE_TAG resolves to $release_sha"
-          if git merge-base --is-ancestor "$release_sha" HEAD; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Already includes $RELEASE_TAG; nothing to synchronize." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          if ! git merge --no-edit --no-ff "$release_sha"; then
-            echo "::error::Official release $RELEASE_TAG conflicts with fork changes. Resolve manually; no force push."
-            git diff --name-only --diff-filter=U || true
-            git merge --abort || true
-            exit 1
-          fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+        run: bash scripts/fork/merge-official-stable.sh
 
       - name: Prepare a push that respects workflow permissions
         if: steps.merge.outputs.changed == 'true'

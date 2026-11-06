@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -8,6 +8,7 @@ import {
 	matchesForkExecutable,
 	parseForkReleaseTag,
 	readForkInstalledTag,
+	runForkUpdate,
 	shouldOfferForkUpdate,
 } from "@oh-my-pi/pi-coding-agent/cli/fork-update";
 
@@ -69,4 +70,30 @@ describe("fork built-in updater", () => {
 		await expect(fetchForkLatestTag(invalid)).rejects.toThrow("invalid tag");
 		await expect(fetchForkLatestTag(missing)).rejects.toThrow("HTTP 404");
 	});
+
+	it.skipIf(process.platform === "win32").each([
+		{ installed: "v18.17.0-mp.2", check: false, kind: "current", installs: false },
+		{ installed: "v18.17.0-mp.1", check: true, kind: "available", installs: false },
+		{ installed: "v18.17.0-mp.1", check: false, kind: "installed", installs: true },
+	])(
+		"reports $kind without installing during a check or when current",
+		async ({ installed, check, kind, installs }) => {
+			const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-fork-outcome-"));
+			const installer = path.join(directory, "install.sh");
+			const marker = path.join(directory, "installed");
+			const latest = "v18.17.0-mp.2";
+			const metadata = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ tag_name: latest }));
+			try {
+				await Bun.write(path.join(directory, "release-tag"), installed);
+				await Bun.write(installer, '#!/bin/sh\nprintf updated > "$(dirname "$0")/installed"\n');
+				const outcome = await runForkUpdate({ directory, installer }, { check, force: false });
+				expect(outcome).toEqual(kind === "current" ? { kind } : { kind, version: latest });
+				expect(await Bun.file(marker).exists()).toBe(installs);
+				if (installs) expect(await Bun.file(marker).text()).toBe("updated");
+			} finally {
+				metadata.mockRestore();
+				await fs.rm(directory, { recursive: true, force: true });
+			}
+		},
+	);
 });

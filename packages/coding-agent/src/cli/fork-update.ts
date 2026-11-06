@@ -13,6 +13,7 @@ import { compareVersions, isCompiledBinary, isEnoent, isRecord } from "@oh-my-pi
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { withTimeoutSignal } from "../utils/fetch-timeout";
 import type { Fetch } from "./build-service";
+import type { UpdateOutcome } from "./update-cli";
 
 const FORK_REPO = "miaopan607/oh-my-pi";
 const FORK_LATEST = `https://api.github.com/repos/${FORK_REPO}/releases/latest`;
@@ -88,7 +89,7 @@ export async function readForkInstalledTag(directory: string): Promise<string | 
 export async function runForkUpdate(
 	install: ForkInstall,
 	options: { check: boolean; force: boolean; channel?: "stable" | "canary" },
-): Promise<void> {
+): Promise<UpdateOutcome> {
 	if (options.channel === "canary") {
 		throw new Error("omp-mp only publishes stable fork releases; the upstream canary channel is unavailable.");
 	}
@@ -98,20 +99,17 @@ export async function runForkUpdate(
 
 	if (!shouldOfferForkUpdate(latest, recorded, options.force)) {
 		console.log(chalk.green(`Already up to date (fork release ${recorded})`));
-		return;
+		return { kind: "current" };
 	}
 	console.log(chalk.cyan(`Fork release available: ${latest}`));
-	if (options.check) return;
+	if (options.check) return { kind: "available", version: latest };
 
 	// Windows does not permit replacing the running .exe. The external launcher
 	// runs the same verified installer after the CLI process has exited.
 	if (process.platform === "win32") {
-		console.log(
-			chalk.yellow(
-				`Close omp-mp, then run 'omp-mp --fork-update${options.force ? " --force" : ""}' in a new terminal.`,
-			),
-		);
-		return;
+		const reason = `Close omp-mp, then run 'omp-mp --fork-update${options.force ? " --force" : ""}' in a new terminal.`;
+		console.log(chalk.yellow(reason));
+		return { kind: "unsupported", reason };
 	}
 	if (!(await Bun.file(install.installer).exists())) {
 		throw new Error("Fork updater script is missing; reinstall omp-mp using scripts/fork/install.sh from the fork.");
@@ -122,4 +120,5 @@ export async function runForkUpdate(
 		throw new Error(`Fork installer failed (exit ${result.exitCode}); original binary should be unchanged`);
 	}
 	console.log(chalk.dim("Restart omp-mp to use the updated fork release."));
+	return { kind: "installed", version: latest };
 }

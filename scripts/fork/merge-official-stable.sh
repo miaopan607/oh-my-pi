@@ -55,6 +55,26 @@ if [[ -n "$previous_snapshot" ]]; then
       # limited to this path are automatically resolved in favor of the fork.
       git restore --source="$virtual_sha" --staged --worktree -- .github/workflows/
       git add -A -- .github/workflows/
+      # The 18.18.6 project-settings refactor conflicts with the fork's
+      # read-only official / writable fork config layers. A reviewed patch
+      # combines both implementations. Never use it for a different release
+      # or after the local fork settings file has changed.
+      settings_path="packages/coding-agent/src/config/settings.ts"
+      if [[ "$RELEASE_TAG" == "v18.18.6" \
+        && "$release_sha" == "9058ab9d229663e229e2867824ba6df6f21e9e59" \
+        && "$(git rev-parse "$base_sha:$settings_path")" == "e4252b37b9c8f51f3e6630bdfd55bb4d57aca2c9" \
+        && "$(git diff --name-only --diff-filter=U)" == "$settings_path" ]]; then
+        echo "Resolving known v18.18.6 settings conflict while retaining fork configuration isolation."
+        git show "$release_sha:$settings_path" > "$settings_path"
+        if ! git apply --check scripts/fork/patches/settings-v18.18.6.patch; then
+          echo "::error::Pinned settings resolution patch no longer applies; refusing to overwrite fork changes."
+          git merge --abort || true
+          exit 1
+        fi
+        git apply scripts/fork/patches/settings-v18.18.6.patch
+        git add -- "$settings_path"
+        echo "Resolved the pinned settings conflict with upstream provider filtering and the fork's separate writable config preserved." >> "$summary_file"
+      fi
       if [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
         echo "::error::Official release $RELEASE_TAG still conflicts with fork edits; resolve actual conflicts manually."
         git diff --name-only --diff-filter=U || true

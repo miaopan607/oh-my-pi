@@ -34,6 +34,28 @@ jobs:
       - name: Verify upstream release selection policy
         run: node --test scripts/fork/select-upstream-release.test.mjs scripts/fork/release-version.test.mjs
 
+      - name: Verify pinned settings conflict resolution against official v18.18.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+          file="$workdir/packages/coding-agent/src/config/settings.ts"
+          mkdir -p "$(dirname "$file")"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://raw.githubusercontent.com/can1357/oh-my-pi/v18.18.6/packages/coding-agent/src/config/settings.ts \
+            > "$file"
+          # Refuse a retargeted/mismatched upstream file.
+          test "$(git hash-object "$file")" = "20cb006d754daed7e8722200558d682878707d3e"
+          (
+            cd "$workdir"
+            git apply --check "$GITHUB_WORKSPACE/scripts/fork/patches/settings-v18.18.6.patch"
+            git apply "$GITHUB_WORKSPACE/scripts/fork/patches/settings-v18.18.6.patch"
+          )
+          grep -Fq 'cfgDisabledProviders' "$file"
+          grep -Fq 'OMP_MP_CONFIG_FILE' "$file"
+          grep -Fq 'officialGlobal: this.#officialGlobal' "$file"
+
       - uses: ./.github/actions/bun-install
 
       - name: TypeScript format, lint and types

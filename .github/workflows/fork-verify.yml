@@ -30,9 +30,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
 
       - name: Verify upstream release selection policy
-        run: node --test scripts/fork/select-upstream-release.test.mjs scripts/fork/release-version.test.mjs
+        run: node --test scripts/fork/*.test.mjs
 
       - name: Verify pinned settings conflict resolution against official v18.18.6
         shell: bash
@@ -56,6 +58,17 @@ jobs:
           grep -Fq 'OMP_MP_CONFIG_FILE' "$file"
           grep -Fq 'officialGlobal: this.#officialGlobal' "$file"
 
+      - name: Preview the reviewed v18.18.8 stable import
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$(node -p "require('./packages/coding-agent/package.json').version")" == "18.18.6" \
+            && -f scripts/fork/patches/saved-resets-v18.18.8.patch ]]; then
+            RELEASE_TAG=v18.18.8 bash scripts/fork/merge-official-stable.sh
+            test "$(node -p "require('./packages/coding-agent/package.json').version")" = "18.18.8"
+          fi
+
       - uses: ./.github/actions/bun-install
 
       - name: TypeScript format, lint and types
@@ -73,11 +86,13 @@ jobs:
           OMP_NATIVE_CARGO_PROFILE: ci
         run: bun scripts/bazel-natives.ts host --dest packages/natives/native
 
-      - name: Fork auth, status line and settings regressions
+      - name: Fork auth, status line, settings and saved-reset regressions
         run: |
           bun test \
             packages/ai/test/auth-broker-usage-freshness.test.ts \
             packages/coding-agent/test/status-line-usage-refresh.test.ts \
             packages/coding-agent/test/config/fork-settings-isolation.test.ts \
             packages/coding-agent/test/config/settings-entry-writes.test.ts \
-            packages/coding-agent/test/config/settings-reload.test.ts
+            packages/coding-agent/test/config/settings-reload.test.ts \
+            packages/coding-agent/test/codex-auto-reset.test.ts \
+            packages/coding-agent/test/claude-auto-reset-integration.test.ts

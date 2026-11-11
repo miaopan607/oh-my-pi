@@ -133,7 +133,12 @@ jobs:
       - name: Test fork-specific behavior
         if: steps.merge.outputs.changed == 'true'
         run: |
-          bun test packages/coding-agent/test/status-line-usage-refresh.test.ts packages/ai/test/auth-broker-usage-freshness.test.ts
+          bun test \
+            packages/coding-agent/test/status-line-usage-refresh.test.ts \
+            packages/ai/test/auth-broker-usage-freshness.test.ts \
+            packages/coding-agent/test/config/fork-settings-isolation.test.ts \
+            packages/coding-agent/test/codex-auto-reset.test.ts \
+            packages/coding-agent/test/claude-auto-reset-integration.test.ts
 
       - name: Push verified official release merge
         if: steps.merge.outputs.changed == 'true'

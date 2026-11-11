@@ -75,6 +75,27 @@ if [[ -n "$previous_snapshot" ]]; then
         git add -- "$settings_path"
         echo "Resolved the pinned settings conflict with upstream provider filtering and the fork's separate writable config preserved." >> "$summary_file"
       fi
+      # v18.18.8 moves saved-reset consent to separate window settings. Keep
+      # the fork's independent sweep cadence, with the new consent rules.
+      session_path="packages/coding-agent/src/session/agent-session.ts"
+      codex_test_path="packages/coding-agent/test/codex-auto-reset.test.ts"
+      claude_test_path="packages/coding-agent/test/claude-auto-reset-integration.test.ts"
+      if [[ "$RELEASE_TAG" == "v18.18.8" \
+        && "$release_sha" == "679691a78141de0dd6ba1b7a5d5c1b1d7d967a63" \
+        && "$(git diff --name-only --diff-filter=U)" == "$(printf '%s\n' "$session_path" "$codex_test_path")" \
+        && "$(git rev-parse "$base_sha:$session_path")" == "444b1b272a01468cfa5c26e05af5da2b4b236747" \
+        && "$(git rev-parse "$base_sha:$codex_test_path")" == "b63f5c9d148a7852786d61dc107ba2f795d1c33b" \
+        && "$(git rev-parse "$base_sha:$claude_test_path")" == "ab0957fd5ee3fbe7e9ef7df3579549dc5f4bd4d2" ]]; then
+        reset_patch="scripts/fork/patches/saved-resets-v18.18.8.patch"
+        git restore --source="$release_sha" --worktree -- "$session_path" "$codex_test_path" "$claude_test_path"
+        if ! git apply "$reset_patch"; then
+          echo "::error::Pinned saved-reset resolution no longer applies."
+          git merge --abort || true
+          exit 1
+        fi
+        git add -- "$session_path" "$codex_test_path" "$claude_test_path"
+        echo "Resolved the pinned saved-reset conflict with per-window consent and the fork's five-minute sweep preserved." >> "$summary_file"
+      fi
       if [[ -n "$(git diff --name-only --diff-filter=U)" ]]; then
         echo "::error::Official release $RELEASE_TAG still conflicts with fork edits; resolve actual conflicts manually."
         git diff --name-only --diff-filter=U || true

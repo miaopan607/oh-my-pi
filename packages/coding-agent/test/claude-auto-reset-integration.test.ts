@@ -16,6 +16,7 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { ExtensionRuntime } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/loader";
 import { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
+import { statusLineHost } from "@oh-my-pi/pi-coding-agent/modes/status-line-host";
 import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
 import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
@@ -24,12 +25,11 @@ import {
 	createCodexAutoRedeemCoordinator,
 } from "@oh-my-pi/pi-coding-agent/session/codex-auto-reset";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
-import { __resetDirsFromEnvForTests, setAgentDir, TempDir } from "@oh-my-pi/pi-utils";
-import { statusLineHost } from "@oh-my-pi/pi-coding-agent/modes/status-line-host";
 import { StatusLineComponent } from "@oh-my-pi/pi-tui/status-line";
+import { __resetDirsFromEnvForTests, setAgentDir, TempDir } from "@oh-my-pi/pi-utils";
 import { mockSchedulerWaitWithClock } from "./helpers/mock-scheduler-clock";
 
-import { cfgClaudeResetsAutoRedeem } from "@oh-my-pi/pi-coding-agent/session/settings";
+import { cfgClaudeResetsAutoRedeemFable, resetWindowModes } from "@oh-my-pi/pi-coding-agent/session/settings";
 
 const ACCOUNT_ID = "claude-account";
 const EMAIL = "claude@example.com";
@@ -866,6 +866,7 @@ describe("Claude saved-reset trigger integration", () => {
 				autoRedeem,
 				salvageHorizonHours: 0,
 			});
+			cfgClaudeResetsAutoRedeemFable.set(session.settings, "no");
 			vi.spyOn(authStorage.credentials, "hasOAuth").mockImplementation(provider => provider === "anthropic");
 			const firstRefresh = Promise.withResolvers<void>();
 			const fetchReports = session.fetchUsageReports.bind(session);
@@ -908,7 +909,7 @@ describe("Claude saved-reset trigger integration", () => {
 	);
 
 	it.each(["yes", "no", "unset"] as const)(
-		"consumes an imminent reset without a prompt UI unless auto-redeem is no (%s)",
+		"consumes an imminent reset without a prompt UI only when auto-redeem is yes (%s)",
 		async autoRedeem => {
 			const status = claudeStatus(false);
 			for (const credit of status.credits) {
@@ -928,7 +929,7 @@ describe("Claude saved-reset trigger integration", () => {
 			await session.fetchUsageReports();
 			await coordinator.sweepPromise;
 			expect(targets).toEqual(
-				autoRedeem !== "no"
+				autoRedeem === "yes"
 					? [
 							{
 								provider: "anthropic",
@@ -945,7 +946,7 @@ describe("Claude saved-reset trigger integration", () => {
 			coordinator.lastSweepAt = 0;
 			await session.fetchUsageReports();
 			await coordinator.sweepPromise;
-			expect(targets).toHaveLength(autoRedeem !== "no" ? 1 : 0);
+			expect(targets).toHaveLength(autoRedeem === "yes" ? 1 : 0);
 		},
 	);
 
@@ -963,7 +964,11 @@ describe("Claude saved-reset trigger integration", () => {
 		await coordinator.sweepPromise;
 		expect(targets).toHaveLength(0);
 		expect(coordinator.attemptedKeys.size).toBe(0);
-		expect(cfgClaudeResetsAutoRedeem.get(session.settings)).toBe("unset");
+		expect(resetWindowModes("anthropic", session.settings)).toEqual({
+			"5h": "unset",
+			weekly: "unset",
+			fable: "unset",
+		});
 	});
 
 	it("still asks before spending an imminent reset when a prompt UI is available", async () => {

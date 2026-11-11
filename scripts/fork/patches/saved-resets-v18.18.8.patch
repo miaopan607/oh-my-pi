@@ -1,0 +1,250 @@
+diff --git a/packages/coding-agent/src/session/agent-session.ts b/packages/coding-agent/src/session/agent-session.ts
+index be40f0fae..e6beb005b 100644
+--- a/packages/coding-agent/src/session/agent-session.ts
++++ b/packages/coding-agent/src/session/agent-session.ts
+@@ -1252,6 +1252,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 	#modelDiscoveryAbortController = new AbortController();
+ 	/** Process-wide by default (double-spend safety across sessions); injectable for tests. */
+ 	#resetCoordinator: CodexAutoRedeemCoordinator;
++	#resetSweepReports: UsageReport[] | null = null;
+ 	/** Each turn stream may adopt a peer's confirmed reset once, not retry on it indefinitely. */
+ 	#adoptedResetMarkers = new Map<string, number>();
+ 	// Extension system
+@@ -15223,7 +15224,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 		return this.#stats.revision;
+ 	}
+ 
+-	async fetchUsageReports(signal?: AbortSignal): Promise<UsageReport[] | null> {
++	async fetchUsageReports(signal?: AbortSignal, maxAgeMs?: number): Promise<UsageReport[] | null> {
+ 		const authStorage = this.#modelRegistry.authStorage;
+ 		if (!authStorage.usage.reports) return null;
+ 		const reports = await authStorage.usage.reports({
+@@ -15239,16 +15240,24 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 				return this.#modelRegistry.getProviderBaseUrl?.(provider);
+ 			},
+ 			signal,
++			maxAgeMs,
+ 		});
+-		// Every fresh usage snapshot doubles as the salvage-sweep heartbeat: the
+-		// status line calls this every 5 minutes while the TUI is open.
++		// Fresh usage can also trigger a sweep. The status line keeps a separate
++		// five-minute heartbeat when it reuses cached usage.
+ 		if (reports) {
+ 			this.#usageReports = reports;
++			this.#resetSweepReports = reports;
+ 			this.#maybeScheduleResetSweep(reports);
+ 		}
+ 		return reports;
+ 	}
+ 
++	/** Preserve the five-minute reset heartbeat while displayed usage stays cached. */
++	refreshResetCredits(): void {
++		if (this.#isDisposed || Date.now() - this.#resetCoordinator.lastSweepAt < 5 * 60_000) return;
++		this.#maybeScheduleResetSweep(this.#resetSweepReports, true);
++	}
++
+ 	/** The newest usage snapshot, available without a network call. */
+ 	get cachedUsageReports(): UsageReport[] | undefined {
+ 		return this.#usageReports;
+@@ -15722,7 +15731,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 					? this.#planClaudeResets("blocked", reports, statuses, coordinator, activeBlockUnblockAtMs)
+ 					: this.#planCodexResets(
+ 							"blocked",
+-							overlayLiveResetCredits(reports, statuses, { synthesizeActive: true, nowMs: Date.now() }),
++							overlayLiveResetCredits(reports, statuses, { synthesize: "active", nowMs: Date.now() }),
+ 							identity,
+ 							coordinator,
+ 							activeBlockUnblockAtMs,
+@@ -15766,14 +15775,17 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 	 * Claude finds its candidates in the usage reports' reset inventory first, so a
+ 	 * sweep with nothing to salvage lists no Claude account.
+ 	 */
+-	#maybeScheduleResetSweep(reports: UsageReport[]): void {
++	#maybeScheduleResetSweep(reports: UsageReport[] | null, heartbeat = false): void {
++		if (this.#isDisposed) return;
+ 		const coordinator = this.#resetCoordinator;
+ 		const codexEnabled =
+ 			resetWindowsEnabled(resetWindowModes("openai-codex", this.settings)) &&
+-			reports.some(report => report.provider === "openai-codex");
++			(reports?.some(report => report.provider === "openai-codex") ||
++				this.#modelRegistry.authStorage.credentials.hasOAuth("openai-codex"));
+ 		const claudeEnabled =
+ 			resetWindowsEnabled(resetWindowModes("anthropic", this.settings)) &&
+-			reports.some(report => report.provider === "anthropic");
++			(reports?.some(report => report.provider === "anthropic") ||
++				this.#modelRegistry.authStorage.credentials.hasOAuth("anthropic"));
+ 		if (!codexEnabled && !claudeEnabled) return;
+ 		if (coordinator.sweepInFlight || coordinator.inFlightByAccount.size > 0) return;
+ 		const now = Date.now();
+@@ -15784,7 +15796,10 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 			if (codexEnabled) {
+ 				try {
+ 					const statuses = await this.listResetCredits(AbortSignal.timeout(10_000), "openai-codex");
+-					const effectiveReports = overlayLiveResetCredits(reports, statuses);
++					const effectiveReports = overlayLiveResetCredits(reports, statuses, {
++						synthesize: "all",
++						nowMs: Date.now(),
++					});
+ 					const identity = this.#modelRegistry.authStorage.oauth.identity("openai-codex", this.sessionId);
+ 					const plan = this.#planCodexResets("sweep", effectiveReports, identity, coordinator);
+ 					await this.#redeemConsentedResets("openai-codex", plan.actions, coordinator);
+@@ -15798,14 +15813,14 @@ export class AgentSession implements SettingsScope, AgentViewSession {
+ 					const candidates = this.#planClaudeResets(
+ 						"sweep",
+ 						reports,
+-						claudeResetStatusesFromReports(accounts, reports),
++						claudeResetStatusesFromReports(accounts, reports ?? []),
+ 						coordinator,
+ 					);
+ 					const plan =
+-						candidates.actions.length > 0
++						heartbeat || !reports || candidates.actions.length > 0
+ 							? this.#planClaudeResets(
+ 									"sweep",
+-									reports,
++									heartbeat ? null : reports,
+ 									await this.listResetCredits(AbortSignal.timeout(10_000), "anthropic"),
+ 									coordinator,
+ 								)
+diff --git a/packages/coding-agent/test/codex-auto-reset.test.ts b/packages/coding-agent/test/codex-auto-reset.test.ts
+index 9d24d139e..2f7b4bdf1 100644
+--- a/packages/coding-agent/test/codex-auto-reset.test.ts
++++ b/packages/coding-agent/test/codex-auto-reset.test.ts
+@@ -18,7 +18,7 @@
+  *   consent, live credit eligibility, terminal dedupe, and account cooldown.
+  */
+ import { describe, expect, it } from "bun:test";
+-import type { UsageReport } from "@oh-my-pi/pi-ai";
++import type { ResetCreditAccountStatus, UsageReport } from "@oh-my-pi/pi-ai";
+ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+ import {
+ 	ATTEMPT_COOLDOWN_MS,
+@@ -26,6 +26,7 @@ import {
+ 	type CodexResetPlanInput,
+ 	IMMINENT_RESET_EXPIRY_MS,
+ 	isTerminalRedeemOutcome,
++	overlayLiveResetCredits,
+ 	planCodexResetRedemptions,
+ 	resetWindowMode,
+ 	SALVAGE_MIN_USED_FRACTION,
+@@ -153,6 +154,26 @@ function input(reports: UsageReport[] | null, overrides: Partial<CodexResetPlanI
+ 	};
+ }
+ 
++it("salvages live imminent Codex credits across the pool without trusting old usage windows", () => {
++	const statuses: ResetCreditAccountStatus[] = [
++		{ credentialId: 1, accountId: ACCOUNT_ID, active: true, expiresInMs: 4 * 60_000 },
++		{ credentialId: 2, accountId: "acct-sib", active: false, expiresInMs: 3 * 60_000 },
++		{ credentialId: 3, accountId: "acct-a", active: false, expiresInMs: 2 * HOUR },
++	].map(({ expiresInMs, ...account }) => ({
++		...account,
++		provider: "openai-codex",
++		availableCount: 1,
++		credits: [{ id: `credit-${account.credentialId}`, expiresAt: new Date(NOW + expiresInMs).toISOString() }],
++	}));
++	const reports = overlayLiveResetCredits(
++		[report({ fetchedAgoMs: 20 * 60_000 }), report({ accountId: "acct-a", fetchedAgoMs: 20 * 60_000 })],
++		statuses,
++		{ synthesize: "all", nowMs: NOW },
++	);
++	const plan = planCodexResetRedemptions(input(reports, { trigger: "sweep" }));
++	expect(plan.actions.map(action => action.target.credentialId).sort((a, b) => a! - b!)).toEqual([1, 2]);
++});
++
+ describe("planCodexResetRedemptions: blocked-account", () => {
+ 	it("restores a weekly-only block (5h has headroom) far from the natural reset", () => {
+ 		const plan = planCodexResetRedemptions(input([report()]));
+diff --git a/packages/coding-agent/test/claude-auto-reset-integration.test.ts b/packages/coding-agent/test/claude-auto-reset-integration.test.ts
+index 0db9d0f58..a93c24890 100644
+--- a/packages/coding-agent/test/claude-auto-reset-integration.test.ts
++++ b/packages/coding-agent/test/claude-auto-reset-integration.test.ts
+@@ -16,6 +16,7 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+ import { ExtensionRuntime } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/loader";
+ import { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
+ import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
++import { statusLineHost } from "@oh-my-pi/pi-coding-agent/modes/status-line-host";
+ import * as sdkModule from "@oh-my-pi/pi-coding-agent/sdk";
+ import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+ import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
+@@ -24,10 +25,11 @@ import {
+ 	createCodexAutoRedeemCoordinator,
+ } from "@oh-my-pi/pi-coding-agent/session/codex-auto-reset";
+ import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
++import { StatusLineComponent } from "@oh-my-pi/pi-tui/status-line";
+ import { __resetDirsFromEnvForTests, setAgentDir, TempDir } from "@oh-my-pi/pi-utils";
+ import { mockSchedulerWaitWithClock } from "./helpers/mock-scheduler-clock";
+ 
+-import { resetWindowModes } from "@oh-my-pi/pi-coding-agent/session/settings";
++import { cfgClaudeResetsAutoRedeemFable, resetWindowModes } from "@oh-my-pi/pi-coding-agent/session/settings";
+ 
+ const ACCOUNT_ID = "claude-account";
+ const EMAIL = "claude@example.com";
+@@ -844,6 +846,68 @@ describe("Claude saved-reset trigger integration", () => {
+ 		expect([...coordinator.lastAttemptAtByAccount.keys()]).toEqual([`anthropic|${ORG_ID}|${CREDENTIAL_ID}`]);
+ 	});
+ 
++	it.each([
++		{ autoRedeem: "yes", hasUsage: true },
++		{ autoRedeem: "yes", hasUsage: false },
++		{ autoRedeem: "no", hasUsage: true },
++	] as const)(
++		"keeps imminent reset checks independent of a ten-minute display interval: %j",
++		async ({ autoRedeem, hasUsage }) => {
++			let now = Date.now();
++			vi.spyOn(Date, "now").mockImplementation(() => now);
++			const report = claudeReport(0);
++			const status = claudeStatus(false);
++			status.report = report;
++			status.credits[0]!.expiresAt = new Date(now + 8 * 60_000).toISOString();
++			status.credits[0]!.usedFractions = { "anthropic:7d": 0 };
++			const { session, coordinator, targets } = buildSession({
++				report: hasUsage ? report : null,
++				status,
++				autoRedeem,
++				salvageHorizonHours: 0,
++			});
++			cfgClaudeResetsAutoRedeemFable.set(session.settings, "no");
++			vi.spyOn(authStorage.credentials, "hasOAuth").mockImplementation(provider => provider === "anthropic");
++			const firstRefresh = Promise.withResolvers<void>();
++			const fetchReports = session.fetchUsageReports.bind(session);
++			const usageFetch = vi.spyOn(session, "fetchUsageReports").mockImplementation(async (signal, maxAgeMs) => {
++				const reports = await fetchReports(signal, maxAgeMs);
++				firstRefresh.resolve();
++				return reports;
++			});
++			const component = new StatusLineComponent(session, {
++				...statusLineHost,
++				getSettings: () => ({ usageRefreshInterval: 600 }),
++			});
++			const listings = vi.spyOn(authStorage.resets, "list");
++			try {
++				component.refreshUsageInBackground();
++				await firstRefresh.promise;
++				session.refreshResetCredits();
++				await coordinator.sweepPromise;
++				expect(targets).toEqual([]);
++				const initialListings = listings.mock.calls.length;
++
++				now += 4 * 60_000;
++				component.refreshUsageInBackground();
++				await coordinator.sweepPromise;
++				expect(listings.mock.calls.length).toBe(initialListings);
++				expect(usageFetch).toHaveBeenCalledTimes(1);
++
++				now += 60_000;
++				component.refreshUsageInBackground();
++				await coordinator.sweepPromise;
++				expect(targets.map(target => target.creditId)).toEqual(autoRedeem === "yes" ? ["cedar-grant-1"] : []);
++				if (autoRedeem === "no") {
++					expect(listings).not.toHaveBeenCalled();
++					expect(usageFetch).toHaveBeenCalledTimes(1);
++				}
++			} finally {
++				component.dispose();
++			}
++		},
++	);
++
+ 	it.each(["yes", "no", "unset"] as const)(
+ 		"consumes an imminent reset without a prompt UI only when auto-redeem is yes (%s)",
+ 		async autoRedeem => {

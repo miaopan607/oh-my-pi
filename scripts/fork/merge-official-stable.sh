@@ -55,25 +55,29 @@ if [[ -n "$previous_snapshot" ]]; then
       # limited to this path are automatically resolved in favor of the fork.
       git restore --source="$virtual_sha" --staged --worktree -- .github/workflows/
       git add -A -- .github/workflows/
-      # The 18.18.6 project-settings refactor conflicts with the fork's
-      # read-only official / writable fork config layers. A reviewed patch
-      # combines both implementations. Never use it for a different release
-      # or after the local fork settings file has changed.
+      # Apply reviewed settings resolutions only to the exact release and
+      # fork blob they were prepared for, and only for that single conflict.
       settings_path="packages/coding-agent/src/config/settings.ts"
-      if [[ "$RELEASE_TAG" == "v18.18.6" \
-        && "$release_sha" == "9058ab9d229663e229e2867824ba6df6f21e9e59" \
-        && "$(git rev-parse "$base_sha:$settings_path")" == "e4252b37b9c8f51f3e6630bdfd55bb4d57aca2c9" \
-        && "$(git diff --name-only --diff-filter=U)" == "$settings_path" ]]; then
-        echo "Resolving known v18.18.6 settings conflict while retaining fork configuration isolation."
-        git show "$release_sha:$settings_path" > "$settings_path"
-        if ! git apply --check scripts/fork/patches/settings-v18.18.6.patch; then
-          echo "::error::Pinned settings resolution patch no longer applies; refusing to overwrite fork changes."
-          git merge --abort || true
-          exit 1
+      if [[ "$(git diff --name-only --diff-filter=U)" == "$settings_path" ]]; then
+        settings_patch=""
+        case "$RELEASE_TAG:$release_sha:$(git rev-parse "$base_sha:$settings_path")" in
+          v18.18.6:9058ab9d229663e229e2867824ba6df6f21e9e59:e4252b37b9c8f51f3e6630bdfd55bb4d57aca2c9)
+            settings_patch="scripts/fork/patches/settings-v18.18.6.patch"
+            ;;
+          v18.20.2:7c49c11aa5bbaf3f418406583096168ad5b8c6dc:8c85c9f7c392da7f45e8a3a551c413d42ca3550b)
+            settings_patch="scripts/fork/patches/settings-v18.20.2.patch"
+            ;;
+        esac
+        if [[ -n "$settings_patch" ]]; then
+          git restore --source="$release_sha" --worktree -- "$settings_path"
+          if ! git apply "$settings_patch"; then
+            echo "::error::Pinned settings resolution patch no longer applies; refusing to overwrite fork changes."
+            git merge --abort || true
+            exit 1
+          fi
+          git add -- "$settings_path"
+          echo "Resolved the pinned $RELEASE_TAG settings conflict with upstream settings behavior and the fork's separate writable config preserved." >> "$summary_file"
         fi
-        git apply scripts/fork/patches/settings-v18.18.6.patch
-        git add -- "$settings_path"
-        echo "Resolved the pinned settings conflict with upstream provider filtering and the fork's separate writable config preserved." >> "$summary_file"
       fi
       # v18.18.8 moves saved-reset consent to separate window settings. Keep
       # the fork's independent sweep cadence, with the new consent rules.

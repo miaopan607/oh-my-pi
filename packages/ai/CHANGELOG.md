@@ -5,6 +5,17 @@
 ### Fork-specific additions
 
 - Added per-request usage-report freshness limits locally and through the auth-broker, without extending credential recovery caches ([#14801](https://github.com/can1357/oh-my-pi/issues/14801), [#14805](https://github.com/can1357/oh-my-pi/pull/14805) by [@miaopan607](https://github.com/miaopan607)).
+## [18.20.3] - 2026-11-16
+
+### Breaking Changes
+
+- Removed the public `isXdDevicePath` export from `providers/cursor-pi-args`. Ranged reads of `xd://` documents now use the standard line-selector behavior.
+
+### Fixed
+
+- Fixed rate-limit handling for Mistral and other OpenAI-compatible providers so requests with no available allowance fail immediately with an actionable error suggesting a model or plan change.
+- Fixed Anthropic OAuth requests for pooled Claude accounts to report accurate device and account information, including after credentials are rotated during a request.
+
 ## [18.20.2] - 2026-11-14
 
 ### Added
